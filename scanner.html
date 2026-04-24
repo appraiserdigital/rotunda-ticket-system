@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Ticket Scanner</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial;
+      text-align: center;
+      background: #111;
+      color: white;
+    }
+
+    #reader {
+      width: 300px;
+      margin: 20px auto;
+    }
+
+    #result {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      font-weight: bold;
+      text-align: center;
+      padding: 20px;
+      display: none;
+    }
+
+    button {
+      font-size: 20px;
+      padding: 15px 25px;
+      margin-top: 20px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+
+    .green { background: #0f0; color: #000; }
+    .orange { background: orange; color: #000; }
+    .red { background: red; color: #fff; }
+    .blue { background: #2196f3; color: #fff; }
+  </style>
+</head>
+
+<body>
+
+  <h2>Scan Ticket</h2>
+  <div id="reader"></div>
+
+  <div id="result"></div>
+
+  <script src="https://unpkg.com/html5-qrcode"></script>
+
+  <script>
+    const result = document.getElementById("result");
+    let scanned = false;
+
+    function showScreen(text, colorClass, buttonHTML = "") {
+      result.className = colorClass;
+      result.innerHTML = text + "<br>" + buttonHTML;
+      result.style.display = "flex";
+    }
+
+    function resetScanner() {
+      scanned = false;
+      result.style.display = "none";
+    }
+
+    function onScanSuccess(decodedText) {
+      if (scanned) return;
+      scanned = true;
+
+      fetch(decodedText)
+        .then(res => res.json())
+        .then(data => {
+
+          if (data.status === "VALID") {
+            showScreen(
+              "✅ VALID",
+              "green",
+              `<button onclick="confirmEntry('${decodedText.replace('/check/', '/use/')}')">Confirm Entry</button>`
+            );
+          } 
+          else if (data.status === "ALREADY_USED") {
+            showScreen("⚠️ ALREADY USED", "orange");
+            setTimeout(resetScanner, 2500);
+          } 
+          else {
+            showScreen("❌ INVALID", "red");
+            setTimeout(resetScanner, 2500);
+          }
+
+        });
+    }
+
+    function confirmEntry(url) {
+      fetch(url)
+        .then(res => res.json())
+        .then(() => {
+          showScreen("🎟 ENTRY CONFIRMED", "blue");
+          setTimeout(resetScanner, 2000);
+        });
+    }
+
+    const html5QrCode = new Html5Qrcode("reader");
+
+    html5QrCode.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: 250 },
+      onScanSuccess
+    );
+  </script>
+
+</body>
+</html>
