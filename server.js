@@ -1,5 +1,4 @@
 import express from "express";
-import bodyParser from "body-parser";
 import Stripe from "stripe";
 import QRCode from "qrcode";
 import { v4 as uuidv4 } from "uuid";
@@ -7,23 +6,22 @@ import { v4 as uuidv4 } from "uuid";
 const app = express();
 const PORT = 3000;
 
-// 🔑 YOUR STRIPE KEYS (leave as you already set them)
+// 🔑 YOUR STRIPE TEST KEY
 const stripe = new Stripe("sk_test_YOUR_KEY");
-const endpointSecret = "whsec_Rr4D1NxsBawF7B4PlXyXpD5fGAFGjZ0F";
 
-// In-memory storage
+// Storage (temporary – will later replace with DB)
 const tickets = {};
+const sessionMap = {};
 
-// Stripe webhook needs raw body
-app.post("/webhook", bodyParser.raw({ type: "application/json" }), async (req, res) => {
-  const sig = req.headers["stripe-signature"];
+// 🔴 WEBHOOK (Render-safe, no signature check for now)
+app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
 
   let event;
 
   try {
-    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    event = JSON.parse(req.body.toString());
   } catch (err) {
-    console.log("❌ Webhook signature failed:", err.message);
+    console.log("❌ Webhook parse failed:", err.message);
     return res.sendStatus(400);
   }
 
@@ -32,12 +30,11 @@ app.post("/webhook", bodyParser.raw({ type: "application/json" }), async (req, r
 
     const ticketId = uuidv4();
 
-    // 👉 IMPORTANT: QR now uses /check (NOT /verify)
     const ticketUrl = `https://rotunda-ticket-system.onrender.com/check/${ticketId}`;
 
     const qr = await QRCode.toDataURL(ticketUrl);
 
-    tickets[ticketId] = {
+    const ticket = {
       id: ticketId,
       name: session.customer_details?.name || "Guest",
       email: session.customer_details?.email || "",
@@ -46,21 +43,38 @@ app.post("/webhook", bodyParser.raw({ type: "application/json" }), async (req, r
       createdAt: new Date()
     };
 
+    tickets[ticketId] = ticket;
+
+    // 🔗 map Stripe session → ticket
+    sessionMap[session.id] = ticketId;
+
     console.log("✅ Ticket created:", ticketId);
-    console.log("🔗 Ticket URL:", ticketUrl);
+    console.log("🔗 Ticket page:", `https://rotunda-ticket-system.onrender.com/ticket/${ticketId}`);
   }
 
   res.json({ received: true });
 });
 
-// Normal JSON parsing
+// JSON middleware
 app.use(express.json());
 
-// Serve static files (scanner.html)
+// Static files (scanner)
 app.use(express.static('.'));
 
-// 🎟 Ticket page (QR display ONLY — no logic)
+// 🟢 SUCCESS ROUTE (reliable)
+app.get("/success", (req, res) => {
+  const sessionId = req.query.session_id;
 
+  const ticketId = sessionMap[sessionId];
+
+  if (!ticketId) {
+    return res.send("❌ Ticket not found");
+  }
+
+  res.redirect(`/ticket/${ticketId}`);
+});
+
+// 🎟 PROFESSIONAL TICKET PAGE
 app.get("/ticket/:id", (req, res) => {
   const ticket = tickets[req.params.id];
 
@@ -152,15 +166,11 @@ app.get("/ticket/:id", (req, res) => {
   `);
 });
 
-
-
-// ✅ SAFE CHECK (does NOT consume ticket)
+// ✅ CHECK (safe)
 app.get("/check/:id", (req, res) => {
   const ticket = tickets[req.params.id];
 
-  if (!ticket) {
-    return res.json({ status: "INVALID" });
-  }
+  if (!ticket) return res.json({ status: "INVALID" });
 
   if (ticket.status === "USED") {
     return res.json({ status: "ALREADY_USED" });
@@ -173,13 +183,11 @@ app.get("/check/:id", (req, res) => {
   });
 });
 
-// 🔥 FINAL USE (only when confirmed)
+// 🔥 USE (confirm entry)
 app.get("/use/:id", (req, res) => {
   const ticket = tickets[req.params.id];
 
-  if (!ticket) {
-    return res.json({ status: "INVALID" });
-  }
+  if (!ticket) return res.json({ status: "INVALID" });
 
   if (ticket.status === "USED") {
     return res.json({ status: "ALREADY_USED" });
@@ -193,22 +201,11 @@ app.get("/use/:id", (req, res) => {
   });
 });
 
-// Root test
+// ROOT
 app.get("/", (req, res) => {
-  res.send("Server running");
+  res.send("🚀 Server running");
 });
-
-app.get("/success", (req, res) => {
-  const latestTicket = Object.values(tickets).slice(-1)[0];
-
-  if (!latestTicket) {
-    return res.send("❌ No ticket found");
-  }
-
-  res.redirect(`/ticket/${latestTicket.id}`);
-});
-
 
 app.listen(PORT, () => {
-  console.log("🚀 Server running on http://localhost:" + PORT);
+  console.log("🚀 Server running on port " + PORT);
 });
