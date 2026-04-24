@@ -4,16 +4,16 @@ import QRCode from "qrcode";
 import { v4 as uuidv4 } from "uuid";
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-// 🔑 YOUR STRIPE TEST KEY
+// 🔑 YOUR STRIPE KEY
 const stripe = new Stripe("sk_test_YOUR_KEY");
 
-// Storage (temporary – will later replace with DB)
+// Temporary storage (we'll upgrade to DB later)
 const tickets = {};
 const sessionMap = {};
 
-// 🔴 WEBHOOK (Render-safe, no signature check for now)
+// 🔴 WEBHOOK (must come BEFORE express.json)
 app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
 
   let event;
@@ -44,8 +44,6 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
     };
 
     tickets[ticketId] = ticket;
-
-    // 🔗 map Stripe session → ticket
     sessionMap[session.id] = ticketId;
 
     console.log("✅ Ticket created:", ticketId);
@@ -58,17 +56,41 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
 // JSON middleware
 app.use(express.json());
 
-// Static files (scanner)
+// Serve scanner.html
 app.use(express.static('.'));
 
-// 🟢 SUCCESS ROUTE (reliable)
-app.get("/success", (req, res) => {
+// 🟢 SUCCESS ROUTE (FIXED with wait)
+app.get("/success", async (req, res) => {
   const sessionId = req.query.session_id;
 
-  const ticketId = sessionMap[sessionId];
+  let attempts = 0;
+
+  const waitForTicket = () => {
+    return new Promise((resolve) => {
+      const interval = setInterval(() => {
+
+        const ticketId = sessionMap[sessionId];
+
+        if (ticketId) {
+          clearInterval(interval);
+          resolve(ticketId);
+        }
+
+        attempts++;
+
+        if (attempts > 10) { // wait ~5 seconds max
+          clearInterval(interval);
+          resolve(null);
+        }
+
+      }, 500);
+    });
+  };
+
+  const ticketId = await waitForTicket();
 
   if (!ticketId) {
-    return res.send("❌ Ticket not found");
+    return res.send("❌ Ticket not ready, please refresh");
   }
 
   res.redirect(`/ticket/${ticketId}`);
@@ -166,7 +188,7 @@ app.get("/ticket/:id", (req, res) => {
   `);
 });
 
-// ✅ CHECK (safe)
+// 🟢 CHECK (scan)
 app.get("/check/:id", (req, res) => {
   const ticket = tickets[req.params.id];
 
@@ -183,7 +205,7 @@ app.get("/check/:id", (req, res) => {
   });
 });
 
-// 🔥 USE (confirm entry)
+// 🔵 USE (confirm entry)
 app.get("/use/:id", (req, res) => {
   const ticket = tickets[req.params.id];
 
