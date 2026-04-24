@@ -33,7 +33,7 @@ app.post("/webhook", bodyParser.raw({ type: "application/json" }), async (req, r
     const ticketId = uuidv4();
 
     // 👉 IMPORTANT: QR now uses /check (NOT /verify)
-    const ticketUrl = `https://fable-dilation-dean.ngrok-free.dev/check/${ticketId}`;
+    const ticketUrl = `https://tickets.borgdanastasi.com/check/${ticketId}`;
 
     const qr = await QRCode.toDataURL(ticketUrl);
 
