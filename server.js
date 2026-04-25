@@ -98,7 +98,7 @@ app.get("/ticket/:id", async (req, res) => {
   if (!ticket) return res.send("❌ Ticket not found");
 
   const qr = await QRCode.toDataURL(
-    `https://rotunda-ticket-system.onrender.com/check/${ticket.id}`
+    `https://rotunda-ticket-system-cr3j.onrender.com/check/${ticket.id}`
   );
 
   res.send(`
