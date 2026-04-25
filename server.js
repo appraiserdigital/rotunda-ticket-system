@@ -1,4 +1,3 @@
-// test deploy
 import express from "express";
 import Stripe from "stripe";
 import QRCode from "qrcode";
