@@ -1,41 +1,19 @@
 import express from "express";
 import Stripe from "stripe";
 import QRCode from "qrcode";
-import sqlite3 from "sqlite3";
-import { open } from "sqlite";
 import { v4 as uuidv4 } from "uuid";
+import { createClient } from "@supabase/supabase-js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const stripe = new Stripe("sk_test_YOUR_KEY");
+// 🟢 SUPABASE SETUP
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
+);
 
-// 🟢 DATABASE SETUP
-let db;
-
-(async () => {
-  db = await open({
-    filename: "./tickets.db",
-    driver: sqlite3.Database
-  });
-
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS tickets (
-      id TEXT PRIMARY KEY,
-      stripeSessionId TEXT,
-      paymentIntentId TEXT,
-      name TEXT,
-      email TEXT,
-      amount INTEGER,
-      currency TEXT,
-      status TEXT,
-      createdAt TEXT,
-      usedAt TEXT
-    )
-  `);
-
-  console.log("✅ Database ready");
-})();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // 🔴 WEBHOOK
 app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
@@ -44,8 +22,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
 
   try {
     event = JSON.parse(req.body.toString());
-  } catch (err) {
-    console.log("❌ Webhook parse failed:", err.message);
+  } catch {
     return res.sendStatus(400);
   }
 
@@ -55,32 +32,19 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
     const ticketId = uuidv4();
 
     const ticketUrl = `https://rotunda-ticket-system.onrender.com/check/${ticketId}`;
-
     const qr = await QRCode.toDataURL(ticketUrl);
 
-    await db.run(`
-      INSERT INTO tickets (
-        id,
-        stripeSessionId,
-        paymentIntentId,
-        name,
-        email,
-        amount,
-        currency,
-        status,
-        createdAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      ticketId,
-      session.id,
-      session.payment_intent,
-      session.customer_details?.name || "Guest",
-      session.customer_details?.email || "",
-      session.amount_total,
-      session.currency,
-      "VALID",
-      new Date().toISOString()
-    ]);
+    await supabase.from("tickets").insert([{
+      id: ticketId,
+      stripe_session_id: session.id,
+      payment_intent_id: session.payment_intent,
+      name: session.customer_details?.name || "Guest",
+      email: session.customer_details?.email || "",
+      amount: session.amount_total,
+      currency: session.currency,
+      status: "VALID",
+      created_at: new Date()
+    }]);
 
     console.log("✅ Ticket created:", ticketId);
   }
@@ -91,35 +55,27 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
 app.use(express.json());
 app.use(express.static('.'));
 
-// 🟢 SUCCESS ROUTE (with DB lookup)
+// 🟢 SUCCESS ROUTE
 app.get("/success", async (req, res) => {
   const sessionId = req.query.session_id;
 
   let attempts = 0;
 
-  const waitForTicket = () => {
-    return new Promise((resolve) => {
-      const interval = setInterval(async () => {
+  const waitForTicket = async () => {
+    while (attempts < 10) {
+      const { data } = await supabase
+        .from("tickets")
+        .select("*")
+        .eq("stripe_session_id", sessionId)
+        .single();
 
-        const ticket = await db.get(
-          "SELECT * FROM tickets WHERE stripeSessionId = ?",
-          [sessionId]
-        );
+      if (data) return data.id;
 
-        if (ticket) {
-          clearInterval(interval);
-          resolve(ticket.id);
-        }
+      await new Promise(r => setTimeout(r, 500));
+      attempts++;
+    }
 
-        attempts++;
-
-        if (attempts > 10) {
-          clearInterval(interval);
-          resolve(null);
-        }
-
-      }, 500);
-    });
+    return null;
   };
 
   const ticketId = await waitForTicket();
@@ -133,10 +89,11 @@ app.get("/success", async (req, res) => {
 
 // 🎟 TICKET PAGE
 app.get("/ticket/:id", async (req, res) => {
-  const ticket = await db.get(
-    "SELECT * FROM tickets WHERE id = ?",
-    [req.params.id]
-  );
+  const { data: ticket } = await supabase
+    .from("tickets")
+    .select("*")
+    .eq("id", req.params.id)
+    .single();
 
   if (!ticket) return res.send("❌ Ticket not found");
 
@@ -146,26 +103,11 @@ app.get("/ticket/:id", async (req, res) => {
 
   res.send(`
   <html>
-  <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-      body { font-family: Arial; background:#f4f6f9; display:flex; justify-content:center; align-items:center; height:100vh; }
-      .ticket { background:white; padding:25px; border-radius:15px; width:320px; text-align:center; }
-      .status { padding:10px; border-radius:8px; margin-top:10px; }
-      .valid { background:#e8f5e9; color:#2e7d32; }
-      .used { background:#fff3e0; color:#ef6c00; }
-    </style>
-  </head>
-  <body>
-    <div class="ticket">
-      <h2>🎟 Church Tour Ticket</h2>
-      <p><strong>${ticket.name}</strong></p>
-      <img src="${qr}" width="180"/>
-      <div class="status ${ticket.status === "VALID" ? "valid" : "used"}">
-        ${ticket.status}
-      </div>
-      <p style="font-size:12px;">ID: ${ticket.id}</p>
-    </div>
+  <body style="font-family: Arial; text-align:center;">
+    <h2>🎟 Church Tour Ticket</h2>
+    <p>${ticket.name}</p>
+    <img src="${qr}" width="200"/>
+    <h3>${ticket.status}</h3>
   </body>
   </html>
   `);
@@ -173,10 +115,11 @@ app.get("/ticket/:id", async (req, res) => {
 
 // 🟢 CHECK
 app.get("/check/:id", async (req, res) => {
-  const ticket = await db.get(
-    "SELECT * FROM tickets WHERE id = ?",
-    [req.params.id]
-  );
+  const { data: ticket } = await supabase
+    .from("tickets")
+    .select("*")
+    .eq("id", req.params.id)
+    .single();
 
   if (!ticket) return res.json({ status: "INVALID" });
 
@@ -184,19 +127,16 @@ app.get("/check/:id", async (req, res) => {
     return res.json({ status: "ALREADY_USED" });
   }
 
-  res.json({
-    status: "VALID",
-    name: ticket.name,
-    id: ticket.id
-  });
+  res.json({ status: "VALID", name: ticket.name });
 });
 
 // 🔵 USE
 app.get("/use/:id", async (req, res) => {
-  const ticket = await db.get(
-    "SELECT * FROM tickets WHERE id = ?",
-    [req.params.id]
-  );
+  const { data: ticket } = await supabase
+    .from("tickets")
+    .select("*")
+    .eq("id", req.params.id)
+    .single();
 
   if (!ticket) return res.json({ status: "INVALID" });
 
@@ -204,10 +144,13 @@ app.get("/use/:id", async (req, res) => {
     return res.json({ status: "ALREADY_USED" });
   }
 
-  await db.run(
-    "UPDATE tickets SET status = ?, usedAt = ? WHERE id = ?",
-    ["USED", new Date().toISOString(), req.params.id]
-  );
+  await supabase
+    .from("tickets")
+    .update({
+      status: "USED",
+      used_at: new Date()
+    })
+    .eq("id", req.params.id);
 
   res.json({ status: "USED" });
 });
