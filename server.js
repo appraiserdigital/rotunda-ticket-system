@@ -1,5 +1,3 @@
-// auto deploy trigger test
-// auto d
 import express from "express";
 import Stripe from "stripe";
 import QRCode from "qrcode";
