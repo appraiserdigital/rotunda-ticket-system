@@ -4,6 +4,7 @@
   "description": "",
   "main": "server.js",
   "dependencies": {
+    "@supabase/supabase-js": "^2.0.0"
     "sqlite3": "^5.1.6",
     "sqlite": "^4.2.1",
     "accepts": "^2.0.0",
