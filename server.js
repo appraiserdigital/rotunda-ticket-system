@@ -33,7 +33,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
 
     const ticketId = uuidv4();
 
-    const ticketUrl = `https://rotunda-ticket-system-cr3j.onrender.com/check/${ticketId}`;
+    const ticketUrl = `https://rotunda-ticket-system-xym6.onrender.com/check/${ticketId}`;
     const qr = await QRCode.toDataURL(ticketUrl);
 
     await supabase.from("tickets").insert([{
@@ -100,7 +100,7 @@ app.get("/ticket/:id", async (req, res) => {
   if (!ticket) return res.send("❌ Ticket not found");
 
   const qr = await QRCode.toDataURL(
-    `https://rotunda-ticket-system-cr3j.onrender.com/check/${ticket.id}`
+    `https://rotunda-ticket-system-xym6.onrender.com/check/${ticket.id}`
   );
 
   res.send(`
