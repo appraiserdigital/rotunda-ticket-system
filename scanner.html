@@ -24,14 +24,14 @@
       left: 0;
       width: 100%;
       height: 100%;
-      display: flex;
+      display: none;
       align-items: center;
       justify-content: center;
       font-size: 40px;
       font-weight: bold;
       text-align: center;
       padding: 20px;
-      display: none;
+      flex-direction: column;
     }
 
     button {
@@ -86,7 +86,7 @@
             showScreen(
               "✅ VALID",
               "green",
-              `<button onclick="confirmEntry('${decodedText.replace('/check/', '/use/')}')">Confirm Entry</button>`
+              `<button onclick="confirmEntry('${decodedText}/verify')">Confirm Entry</button>`
             );
           } 
           else if (data.status === "ALREADY_USED") {
@@ -98,14 +98,22 @@
             setTimeout(resetScanner, 2500);
           }
 
+        })
+        .catch(() => {
+          showScreen("❌ ERROR", "red");
+          setTimeout(resetScanner, 2500);
         });
     }
 
     function confirmEntry(url) {
-      fetch(url)
+      fetch(url, { method: 'POST' })
         .then(res => res.json())
         .then(() => {
           showScreen("🎟 ENTRY CONFIRMED", "blue");
+          setTimeout(resetScanner, 2000);
+        })
+        .catch(() => {
+          showScreen("❌ ERROR", "red");
           setTimeout(resetScanner, 2000);
         });
     }
