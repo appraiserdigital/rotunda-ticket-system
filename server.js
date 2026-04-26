@@ -16,7 +16,7 @@ const supabase = createClient(
 // 🟢 STRIPE
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// 🔴 WEBHOOK (NO SIGNATURE FOR NOW)
+// 🔴 WEBHOOK (NO SIGNATURE FOR NOW - FOR TESTING)
 app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   console.log("🔥 WEBHOOK HIT");
 
@@ -58,11 +58,10 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
   res.json({ received: true });
 });
 
-// 🟢 NORMAL MIDDLEWARE
+// 🟢 JSON PARSER (AFTER WEBHOOK)
 app.use(express.json());
-app.use(express.static('.'));
 
-// 🟢 SUCCESS
+// 🟢 SUCCESS ROUTE
 app.get("/success", async (req, res) => {
   const sessionId = req.query.session_id;
 
@@ -162,7 +161,10 @@ app.get("/use/:id", async (req, res) => {
   res.json({ status: "USED" });
 });
 
-// 🚀 START
+// 🟢 STATIC LAST (IMPORTANT)
+app.use(express.static('.'));
+
+// 🚀 START SERVER
 app.listen(PORT, () => {
   console.log("🚀 Server running");
 });
