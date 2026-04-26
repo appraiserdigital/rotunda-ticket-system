@@ -13,25 +13,26 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
+// 🟢 STRIPE SETUP
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// 🔴 WEBHOOK
+// 🔴 WEBHOOK (FIXED + LOGGING)
 app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
 
   let event;
 
-try {
-  const sig = req.headers['stripe-signature'];
+  try {
+    const sig = req.headers["stripe-signature"];
 
-  event = stripe.webhooks.constructEvent(
-    req.body,
-    sig,
-    process.env.STRIPE_WEBHOOK_SECRET
-  );
-} catch (err) {
-  console.log("❌ Webhook signature error:", err.message);
-  return res.sendStatus(400);
-}
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    console.log("❌ Webhook signature error:", err.message);
+    return res.sendStatus(400);
+  }
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
@@ -41,24 +42,32 @@ try {
     const ticketUrl = `https://rotunda-ticket-system-xym6.onrender.com/check/${ticketId}`;
     const qr = await QRCode.toDataURL(ticketUrl);
 
-    await supabase.from("tickets").insert([{
-      id: ticketId,
-      stripe_session_id: session.id,
-      payment_intent_id: session.payment_intent,
-      name: session.customer_details?.name || "Guest",
-      email: session.customer_details?.email || "",
-      amount: session.amount_total,
-      currency: session.currency,
-      status: "VALID",
-      created_at: new Date()
-    }]);
+    // 🔥 INSERT WITH ERROR LOGGING
+    const { data, error } = await supabase
+      .from("tickets")
+      .insert([{
+        id: ticketId,
+        stripe_session_id: session.id,
+        payment_intent_id: session.payment_intent,
+        name: session.customer_details?.name || "Guest",
+        email: session.customer_details?.email || "",
+        amount: session.amount_total,
+        currency: session.currency,
+        status: "VALID",
+        created_at: new Date()
+      }]);
 
-    console.log("✅ Ticket created:", ticketId);
+    if (error) {
+      console.log("❌ SUPABASE INSERT ERROR:", error);
+    } else {
+      console.log("✅ Ticket created:", ticketId);
+    }
   }
 
   res.json({ received: true });
 });
 
+// 🟢 MIDDLEWARE
 app.use(express.json());
 app.use(express.static('.'));
 
@@ -162,6 +171,7 @@ app.get("/use/:id", async (req, res) => {
   res.json({ status: "USED" });
 });
 
+// 🚀 START SERVER
 app.listen(PORT, () => {
   console.log("🚀 Server running");
 });
