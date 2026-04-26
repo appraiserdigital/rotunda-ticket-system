@@ -260,9 +260,47 @@ app.get("/ticket/:id", async (req, res) => {
     <p class="name">${escapeHtml(ticket.name)}</p>
     <p class="detail">${escapeHtml(ticket.email)}</p>
     <p class="detail">${dateStr}${amount ? " · " + amount : ""}</p>
-    <span class="status">${ticket.status}</span>
-    <p class="footer">Present this QR code at the entrance</p>
+    <span class="status" id="status-badge">${ticket.status}</span>
+    <p class="footer" id="footer-text">Present this QR code at the entrance</p>
   </div>
+
+  <script>
+    // Poll /check/:id every 4 seconds and update the badge if status changes
+    const ticketId  = "${ticket.id}";
+    const checkUrl  = "${BASE_URL}/check/" + ticketId;
+    let   lastStatus = "${ticket.status}";
+    const badge      = document.getElementById("status-badge");
+    const footer     = document.getElementById("footer-text");
+
+    function applyStatus(status) {
+      if (status === "VALID") {
+        badge.style.color      = "#22c55e";
+        badge.style.border     = "1px solid #22c55e";
+        badge.style.background = "#22c55e22";
+        badge.textContent      = "VALID";
+        footer.textContent     = "Present this QR code at the entrance";
+      } else if (status === "USED" || status === "ALREADY_USED") {
+        badge.style.color      = "#ef4444";
+        badge.style.border     = "1px solid #ef4444";
+        badge.style.background = "#ef444422";
+        badge.textContent      = "USED";
+        footer.textContent     = "This ticket has already been scanned at the entrance";
+        clearInterval(poll); // stop polling once used
+      }
+    }
+
+    const poll = setInterval(function() {
+      fetch(checkUrl)
+        .then(r => r.json())
+        .then(data => {
+          if (data.status !== lastStatus) {
+            lastStatus = data.status;
+            applyStatus(data.status);
+          }
+        })
+        .catch(function() {}); // silent fail — offline etc.
+    }, 4000);
+  </script>
 </body>
 </html>`);
 
