@@ -7,90 +7,66 @@ import { createClient } from "@supabase/supabase-js";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 🟢 SUPABASE
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
 );
 
-// 🟢 STRIPE
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// 🔴 WEBHOOK (NO SIGNATURE FOR NOW - FOR TESTING)
-app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
-  console.log("🔥 WEBHOOK HIT");
-
-  let event;
-
-  try {
-    event = JSON.parse(req.body.toString());
-  } catch (err) {
-    console.log("❌ JSON PARSE ERROR:", err.message);
-    return res.sendStatus(400);
-  }
-
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object;
-
-    const ticketId = uuidv4();
-
-    const { error } = await supabase
-      .from("tickets")
-      .insert([{
-        id: ticketId,
-        stripe_session_id: session.id,
-        payment_intent_id: session.payment_intent,
-        name: session.customer_details?.name || "Guest",
-        email: session.customer_details?.email || "",
-        amount: session.amount_total,
-        currency: session.currency,
-        status: "VALID",
-        created_at: new Date()
-      }]);
-
-    if (error) {
-      console.log("❌ SUPABASE INSERT ERROR:", error);
-    } else {
-      console.log("✅ Ticket created:", ticketId);
-    }
-  }
-
-  res.json({ received: true });
-});
-
-// 🟢 JSON PARSER (AFTER WEBHOOK)
 app.use(express.json());
+app.use(express.static('.'));
 
-// 🟢 SUCCESS ROUTE
+// 🟢 SUCCESS ROUTE (CREATES TICKET DIRECTLY)
 app.get("/success", async (req, res) => {
   const sessionId = req.query.session_id;
 
-  let attempts = 0;
+  try {
+    // 1. Get session from Stripe
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-  const waitForTicket = async () => {
-    while (attempts < 30) {
-      const { data } = await supabase
+    // 2. Check if ticket already exists (prevents duplicates)
+    const { data: existing } = await supabase
+      .from("tickets")
+      .select("*")
+      .eq("stripe_session_id", sessionId)
+      .single();
+
+    let ticketId;
+
+    if (existing) {
+      ticketId = existing.id;
+    } else {
+      ticketId = uuidv4();
+
+      const { error } = await supabase
         .from("tickets")
-        .select("*")
-        .eq("stripe_session_id", sessionId)
-        .single();
+        .insert([{
+          id: ticketId,
+          stripe_session_id: session.id,
+          payment_intent_id: session.payment_intent,
+          name: session.customer_details?.name || "Guest",
+          email: session.customer_details?.email || "",
+          amount: session.amount_total,
+          currency: session.currency,
+          status: "VALID",
+          created_at: new Date()
+        }]);
 
-      if (data) return data.id;
+      if (error) {
+        console.log("❌ SUPABASE INSERT ERROR:", error);
+        return res.send("Database error");
+      }
 
-      await new Promise(r => setTimeout(r, 1000));
-      attempts++;
+      console.log("✅ Ticket created:", ticketId);
     }
 
-    return null;
-  };
+    res.redirect(`/ticket/${ticketId}`);
 
-  const ticketId = await waitForTicket();
-
-  if (!ticketId) {
-    return res.send("❌ Ticket not ready, refresh");
+  } catch (err) {
+    console.log("❌ STRIPE ERROR:", err.message);
+    res.send("Payment verification failed");
   }
-
-  res.redirect(`/ticket/${ticketId}`);
 });
 
 // 🎟 TICKET PAGE
@@ -161,10 +137,6 @@ app.get("/use/:id", async (req, res) => {
   res.json({ status: "USED" });
 });
 
-// 🟢 STATIC LAST (IMPORTANT)
-app.use(express.static('.'));
-
-// 🚀 START SERVER
 app.listen(PORT, () => {
   console.log("🚀 Server running");
 });
