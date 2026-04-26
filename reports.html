@@ -143,7 +143,7 @@
       <div class="filter-actions">
         <button class="btn-outline btn-sm" onclick="resetFilters()">Reset</button>
         <button class="btn-primary btn-sm" onclick="loadAll()">Apply</button>
-        <button class="btn-green btn-sm" onclick="exportCsv()">⬇ Export CSV</button>
+        <button class="btn-green btn-sm" onclick="exportXlsx()">⬇ Export Excel</button>
       </div>
     </div>
 
@@ -361,12 +361,12 @@ async function loadTickets() {
   } catch (err) { showError("Failed to load tickets: " + err.message); }
 }
 
-// ── CSV ──────────────────────────────────────────────
-function exportCsv() {
+// ── Export ───────────────────────────────────────────
+function exportXlsx() {
   const f = getFilters();
   const params = new URLSearchParams({ token: ADMIN_TOKEN, ...f });
   for (const [k,v] of [...params.entries()]) { if (!v) params.delete(k); }
-  window.open(`/admin/export.csv?${params}`, "_blank");
+  window.open(`/admin/export.xlsx?${params}`, "_blank");
 }
 
 // ── Helpers ──────────────────────────────────────────
