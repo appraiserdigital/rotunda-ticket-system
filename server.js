@@ -7,18 +7,17 @@ import { createClient } from "@supabase/supabase-js";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 🟢 SUPABASE SETUP
+// 🟢 SUPABASE
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
 );
 
-// 🟢 STRIPE SETUP
+// 🟢 STRIPE
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// 🔴 WEBHOOK (FIXED + LOGGING)
+// 🔴 WEBHOOK (MUST BE FIRST - RAW BODY)
 app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
-
   console.log("🔥 WEBHOOK HIT");
 
   let event;
@@ -41,11 +40,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
 
     const ticketId = uuidv4();
 
-    const ticketUrl = `https://rotunda-ticket-system-xym6.onrender.com/check/${ticketId}`;
-    const qr = await QRCode.toDataURL(ticketUrl);
-
-    // 🔥 INSERT WITH ERROR LOGGING
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from("tickets")
       .insert([{
         id: ticketId,
@@ -69,7 +64,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
   res.json({ received: true });
 });
 
-// 🟢 MIDDLEWARE
+// 🟢 NORMAL MIDDLEWARE (AFTER WEBHOOK)
 app.use(express.json());
 app.use(express.static('.'));
 
@@ -80,7 +75,7 @@ app.get("/success", async (req, res) => {
   let attempts = 0;
 
   const waitForTicket = async () => {
-    while (attempts < 10) {
+    while (attempts < 20) {
       const { data } = await supabase
         .from("tickets")
         .select("*")
@@ -89,7 +84,7 @@ app.get("/success", async (req, res) => {
 
       if (data) return data.id;
 
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 1000));
       attempts++;
     }
 
@@ -173,7 +168,7 @@ app.get("/use/:id", async (req, res) => {
   res.json({ status: "USED" });
 });
 
-// 🚀 START SERVER
+// 🚀 START
 app.listen(PORT, () => {
   console.log("🚀 Server running");
 });
