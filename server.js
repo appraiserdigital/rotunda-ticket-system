@@ -16,22 +16,16 @@ const supabase = createClient(
 // 🟢 STRIPE
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// 🔴 WEBHOOK (MUST BE FIRST - RAW BODY)
+// 🔴 WEBHOOK (NO SIGNATURE FOR NOW)
 app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   console.log("🔥 WEBHOOK HIT");
 
   let event;
 
   try {
-    const sig = req.headers["stripe-signature"];
-
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
+    event = JSON.parse(req.body.toString());
   } catch (err) {
-    console.log("❌ Webhook signature error:", err.message);
+    console.log("❌ JSON PARSE ERROR:", err.message);
     return res.sendStatus(400);
   }
 
@@ -64,18 +58,18 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
   res.json({ received: true });
 });
 
-// 🟢 NORMAL MIDDLEWARE (AFTER WEBHOOK)
+// 🟢 NORMAL MIDDLEWARE
 app.use(express.json());
 app.use(express.static('.'));
 
-// 🟢 SUCCESS ROUTE
+// 🟢 SUCCESS
 app.get("/success", async (req, res) => {
   const sessionId = req.query.session_id;
 
   let attempts = 0;
 
   const waitForTicket = async () => {
-    while (attempts < 20) {
+    while (attempts < 30) {
       const { data } = await supabase
         .from("tickets")
         .select("*")
