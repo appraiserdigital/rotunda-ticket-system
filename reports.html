@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Rotunda — Financial Reports</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0d1a;
+      --surface:   #13132a;
+      --border:    #1e1e3a;
+      --text:      #e5e5f0;
+      --muted:     #7070a0;
+      --green:     #22c55e;
+      --blue:      #3b82f6;
+      --orange:    #f59e0b;
+      --red:       #ef4444;
+      --purple:    #a855f7;
+    }
+
+    body {
+      font-family: -apple-system, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Auth screen ── */
+    #auth-screen {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .auth-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 40px 32px;
+      width: 360px;
+      text-align: center;
+    }
+
+    .auth-box h1 { font-size: 20px; margin-bottom: 8px; }
+    .auth-box p  { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+
+    input[type="password"],
+    input[type="text"],
+    input[type="date"],
+    select {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+    }
+    input:focus, select:focus { border-color: var(--blue); }
+
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: opacity .15s;
+    }
+    button:active { opacity: .75; }
+
+    .btn-primary  { background: var(--blue);   color: #fff; }
+    .btn-green    { background: var(--green);   color: #fff; }
+    .btn-outline  {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .btn-sm { padding: 6px 14px; font-size: 12px; }
+
+    /* ── Main layout ── */
+    #app { display: none; }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .topbar h1 { font-size: 16px; }
+    .topbar span { font-size: 12px; color: var(--muted); }
+
+    .main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+
+    /* ── Filter bar ── */
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: flex-end;
+      margin-bottom: 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .filter-group { display: flex; flex-direction: column; gap: 4px; }
+    .filter-group label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+    .filter-group input,
+    .filter-group select { width: 160px; }
+    .filter-actions { display: flex; gap: 8px; margin-left: auto; align-items: flex-end; }
+
+    /* ── Stat cards ── */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+    .card .value { font-size: 28px; font-weight: bold; }
+    .card .sub   { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .card.green .value { color: var(--green); }
+    .card.blue  .value { color: var(--blue);  }
+    .card.orange .value { color: var(--orange); }
+    .card.purple .value { color: var(--purple); }
+
+    /* ── Section ── */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    /* ── Table ── */
+    .tbl-wrap { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th {
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #0e0e22;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: bold;
+    }
+    .badge-valid   { background: #22c55e22; color: var(--green); border: 1px solid var(--green); }
+    .badge-used    { background: #3b82f622; color: var(--blue);  border: 1px solid var(--blue);  }
+    .badge-other   { background: #ef444422; color: var(--red);   border: 1px solid var(--red);   }
+
+    /* ── Empty / loading ── */
+    .empty {
+      padding: 40px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    #error-bar {
+      display: none;
+      background: #ef444422;
+      border: 1px solid var(--red);
+      color: var(--red);
+      border-radius: 8px;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Auth Screen ─────────────────────────────────── -->
+<div id="auth-screen">
+  <div class="auth-box">
+    <h1>🔐 Admin Access</h1>
+    <p>Rotunda Financial Reports</p>
+    <input type="password" id="token-input" placeholder="Enter admin token" style="margin-bottom:12px"/>
+    <button class="btn-primary" style="width:100%" onclick="authenticate()">Sign In</button>
+    <p id="auth-error" style="color:var(--red);font-size:12px;margin-top:12px;display:none">
+      Invalid token
+    </p>
+  </div>
+</div>
+
+<!-- ── Main App ────────────────────────────────────── -->
+<div id="app">
+
+  <div class="topbar">
+    <h1>🎟 Rotunda — Financial Reports</h1>
+    <span id="topbar-meta"></span>
+  </div>
+
+  <div class="main">
+
+    <div id="error-bar"></div>
+
+    <!-- Filter bar -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label>From</label>
+        <input type="date" id="f-from"/>
+      </div>
+      <div class="filter-group">
+        <label>To</label>
+        <input type="date" id="f-to"/>
+      </div>
+      <div class="filter-group">
+        <label>Status</label>
+        <select id="f-status">
+          <option value="">All statuses</option>
+          <option value="VALID">VALID</option>
+          <option value="USED">USED</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Email contains</label>
+        <input type="text" id="f-email" placeholder="search email"/>
+      </div>
+      <div class="filter-actions">
+        <button class="btn-outline btn-sm" onclick="resetFilters()">Reset</button>
+        <button class="btn-primary btn-sm" onclick="loadAll()">Apply</button>
+        <button class="btn-green  btn-sm" onclick="exportCsv()">⬇ Export CSV</button>
+      </div>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="cards">
+      <div class="card green">
+        <div class="label">Total Revenue</div>
+        <div class="value" id="stat-revenue">—</div>
+        <div class="sub"  id="stat-currency"></div>
+      </div>
+      <div class="card blue">
+        <div class="label">Tickets Sold</div>
+        <div class="value" id="stat-total">—</div>
+        <div class="sub">total records</div>
+      </div>
+      <div class="card orange">
+        <div class="label">Tickets Used</div>
+        <div class="value" id="stat-used">—</div>
+        <div class="sub" id="stat-used-pct"></div>
+      </div>
+      <div class="card purple">
+        <div class="label">Remaining</div>
+        <div class="value" id="stat-valid">—</div>
+        <div class="sub">not yet scanned</div>
+      </div>
+    </div>
+
+    <!-- Daily breakdown -->
+    <div class="section">
+      <div class="section-header">
+        <span>Daily Breakdown</span>
+      </div>
+      <div class="tbl-wrap">
+        <table id="daily-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Tickets</th>
+              <th>Revenue</th>
+              <th>Currency</th>
+            </tr>
+          </thead>
+          <tbody id="daily-body">
+            <tr><td colspan="4" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- All tickets -->
+    <div class="section">
+      <div class="section-header">
+        <span>All Tickets</span>
+        <span id="ticket-count" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+      <div class="tbl-wrap">
+        <table id="ticket-table">
+          <thead>
+            <tr>
+              <th>Date / Time</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Amount</th>
+              <th>Status</th>
+              <th>Used At</th>
+              <th>Ticket ID</th>
+            </tr>
+          </thead>
+          <tbody id="ticket-body">
+            <tr><td colspan="7" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<script>
+  // ─────────────────────────────────────────────
+  // State
+  // ─────────────────────────────────────────────
+  let ADMIN_TOKEN = "";
+
+  // ─────────────────────────────────────────────
+  // Auth
+  // ─────────────────────────────────────────────
+  function authenticate() {
+    const t = document.getElementById("token-input").value.trim();
+    if (!t) return;
+
+    // Quick probe — try /admin/summary with the given token
+    fetch(apiUrl("/admin/summary", { token: t }))
+      .then(r => {
+        if (r.status === 401) {
+          document.getElementById("auth-error").style.display = "block";
+          return null;
+        }
+        return r.json();
+      })
+      .then(data => {
+        if (!data) return;
+        ADMIN_TOKEN = t;
+        document.getElementById("auth-screen").style.display = "none";
+        document.getElementById("app").style.display = "block";
+        setDefaultDates();
+        loadAll();
+      })
+      .catch(() => {
+        document.getElementById("auth-error").style.display = "block";
+      });
+  }
+
+  document.getElementById("token-input").addEventListener("keydown", e => {
+    if (e.key === "Enter") authenticate();
+  });
+
+  // ─────────────────────────────────────────────
+  // Filters
+  // ─────────────────────────────────────────────
+  function setDefaultDates() {
+    const now   = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1); // first of this month
+    document.getElementById("f-from").value = fmtDate(start);
+    document.getElementById("f-to").value   = fmtDate(now);
+  }
+
+  function resetFilters() {
+    setDefaultDates();
+    document.getElementById("f-status").value = "";
+    document.getElementById("f-email").value  = "";
+    loadAll();
+  }
+
+  function getFilters() {
+    return {
+      from:   document.getElementById("f-from").value,
+      to:     document.getElementById("f-to").value,
+      status: document.getElementById("f-status").value,
+      email:  document.getElementById("f-email").value,
+    };
+  }
+
+  // ─────────────────────────────────────────────
+  // Load everything
+  // ─────────────────────────────────────────────
+  function loadAll() {
+    loadSummary();
+    loadDaily();
+    loadTickets();
+  }
+
+  async function loadSummary() {
+    const f = getFilters();
+    try {
+      const data = await apiFetch("/admin/summary", f);
+      // Pick first currency (most installs are single-currency)
+      const currencies = Object.keys(data.by_currency || {});
+      const cur  = currencies[0] || "EUR";
+      const info = data.by_currency[cur] || {};
+
+      el("stat-revenue").textContent  = currencies.length
+        ? `${cur} ${parseFloat(info.amount_major).toLocaleString("en-MT", { minimumFractionDigits: 2 })}`
+        : "—";
+      el("stat-currency").textContent = currencies.length > 1
+        ? "Multiple currencies — see table" : "";
+      el("stat-total").textContent    = data.total_tickets ?? "—";
+      el("stat-used").textContent     = data.used_tickets  ?? "—";
+      el("stat-valid").textContent    = data.valid_tickets ?? "—";
+
+      const pct = data.total_tickets > 0
+        ? Math.round((data.used_tickets / data.total_tickets) * 100)
+        : 0;
+      el("stat-used-pct").textContent = `${pct}% of total`;
+
+      el("topbar-meta").textContent =
+        `Updated ${new Date().toLocaleTimeString("en-MT")}`;
+
+    } catch (err) {
+      showError("Failed to load summary: " + err.message);
+    }
+  }
+
+  async function loadDaily() {
+    const f = getFilters();
+    try {
+      const rows = await apiFetch("/admin/daily", f);
+      const tbody = el("daily-body");
+
+      if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="4" class="empty">No data for this period</td></tr>`;
+        return;
+      }
+
+      // Reverse so most recent first
+      const sorted = [...rows].sort((a, b) => b.date.localeCompare(a.date));
+
+      tbody.innerHTML = sorted.map(r => `
+        <tr>
+          <td>${r.date}</td>
+          <td>${r.count}</td>
+          <td>${parseFloat(r.amount_major).toLocaleString("en-MT", {
+            minimumFractionDigits: 2, maximumFractionDigits: 2
+          })}</td>
+          <td>${r.currency}</td>
+        </tr>
+      `).join("");
+
+    } catch (err) {
+      showError("Failed to load daily data: " + err.message);
+    }
+  }
+
+  async function loadTickets() {
+    const f = getFilters();
+    try {
+      const rows = await apiFetch("/admin/tickets", f);
+      const tbody = el("ticket-body");
+      el("ticket-count").textContent = `${rows.length} record${rows.length !== 1 ? "s" : ""}`;
+
+      if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty">No tickets found</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = rows.map(t => {
+        const dt      = new Date(t.created_at);
+        const usedAt  = t.used_at ? new Date(t.used_at).toLocaleString("en-MT") : "—";
+        const amount  = t.amount != null
+          ? `${(t.currency || "EUR").toUpperCase()} ${(t.amount / 100).toFixed(2)}`
+          : "—";
+        const badge   = t.status === "VALID" ? "badge-valid"
+                      : t.status === "USED"  ? "badge-used"
+                      :                        "badge-other";
+
+        return `<tr>
+          <td>${dt.toLocaleDateString("en-MT")} ${dt.toLocaleTimeString("en-MT", { hour: "2-digit", minute: "2-digit" })}</td>
+          <td>${escHtml(t.name)}</td>
+          <td>${escHtml(t.email)}</td>
+          <td style="font-variant-numeric:tabular-nums">${amount}</td>
+          <td><span class="badge ${badge}">${t.status}</span></td>
+          <td>${usedAt}</td>
+          <td style="font-size:11px;color:var(--muted);font-family:monospace">${t.id.slice(0, 8)}…</td>
+        </tr>`;
+      }).join("");
+
+    } catch (err) {
+      showError("Failed to load tickets: " + err.message);
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // CSV Export
+  // ─────────────────────────────────────────────
+  function exportCsv() {
+    const f = getFilters();
+    const params = new URLSearchParams({ token: ADMIN_TOKEN, ...f });
+    // Remove empty params
+    for (const [k, v] of [...params.entries()]) {
+      if (!v) params.delete(k);
+    }
+    window.open(`/admin/export.csv?${params}`, "_blank");
+  }
+
+  // ─────────────────────────────────────────────
+  // Helpers
+  // ─────────────────────────────────────────────
+  function apiUrl(path, params = {}) {
+    const p = new URLSearchParams({ token: ADMIN_TOKEN, ...params });
+    for (const [k, v] of [...p.entries()]) {
+      if (!v) p.delete(k);
+    }
+    return `${path}?${p}`;
+  }
+
+  async function apiFetch(path, params = {}) {
+    const res = await fetch(apiUrl(path, params));
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
+
+  function el(id) { return document.getElementById(id); }
+
+  function fmtDate(d) {
+    return d.toISOString().slice(0, 10);
+  }
+
+  function escHtml(s = "") {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function showError(msg) {
+    const bar = el("error-bar");
+    bar.textContent = "⚠️ " + msg;
+    bar.style.display = "block";
+    setTimeout(() => { bar.style.display = "none"; }, 6000);
+  }
+</script>
+</body>
+</html>
