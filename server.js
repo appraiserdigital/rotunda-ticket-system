@@ -4,6 +4,7 @@ import QRCode   from "qrcode";
 import { v4 as uuidv4 }  from "uuid";
 import { createClient }  from "@supabase/supabase-js";
 import { Resend }        from "resend";
+import ExcelJS           from "exceljs";
 
 const REQUIRED_ENV = [
   "SUPABASE_URL","SUPABASE_KEY","STRIPE_SECRET_KEY",
@@ -378,4 +379,134 @@ app.get("/admin/export.csv", requireAdmin, async (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌐 Base URL: ${BASE_URL}`);
+});
+
+// ADMIN XLSX EXPORT (formatted)
+// GET /admin/export.xlsx?token=xxx&from=...&to=...
+const XLSX_HEADERS = [
+  "ticket_id","date","time_utc","name","email","tour_type",
+  "gross_eur","net_eur_excl_vat","vat_18pct","currency",
+  "ticket_status","payment_status","payment_intent_id","stripe_session_id",
+  "expires_at","used_at"
+];
+// Column widths in chars — stripe_session_id (col 14) is fixed wide, not auto
+const XLSX_WIDTHS = [38,14,12,26,36,28,13,18,12,10,14,16,36,52,22,22];
+const PAD = "   "; // 3 spaces before and after each value
+
+async function buildXlsx(tickets) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Rotunda Ticket System";
+  const ws = wb.addWorksheet("Tickets", { views: [{ state:"frozen", ySplit:1 }] });
+
+  ws.columns = XLSX_HEADERS.map((h, i) => ({
+    key:   h,
+    width: XLSX_WIDTHS[i],
+  }));
+
+  // ── Header row ───────────────────────────────────────────────
+  const headerRow = ws.addRow(
+    XLSX_HEADERS.map(h => PAD + h.replace(/_/g, " ").toUpperCase() + PAD)
+  );
+  headerRow.height = 22;
+  headerRow.eachCell(cell => {
+    cell.font      = { bold:true, name:"Arial", size:10, color:{ argb:"FF1B3A6B" } };
+    cell.fill      = { type:"pattern", pattern:"solid", fgColor:{ argb:"FFD6E4F0" } };
+    cell.alignment = { vertical:"middle", horizontal:"left" };
+    cell.border    = { bottom:{ style:"medium", color:{ argb:"FF1B3A6B" } } };
+  });
+
+  // ── Data rows ────────────────────────────────────────────────
+  const LIGHT_BLUE = "FFE8F4FB";
+  const WHITE      = "FFFFFFFF";
+
+  tickets.forEach((t, i) => {
+    const dt  = new Date(t.created_at);
+    const v   = vatBreakdown(t.amount || 0);
+    const row = ws.addRow([
+      PAD + (t.id                          || "") + PAD,
+      PAD + dt.toISOString().slice(0,10)          + PAD,
+      PAD + dt.toISOString().slice(11,19)         + PAD,
+      PAD + (t.name                        || "") + PAD,
+      PAD + (t.email                       || "") + PAD,
+      PAD + (t.tour_type || "General Admission")  + PAD,
+      PAD + v.gross_major                         + PAD,
+      PAD + v.net_major                           + PAD,
+      PAD + v.vat_major                           + PAD,
+      PAD + (t.currency  || "EUR").toUpperCase()  + PAD,
+      PAD + (t.status                      || "") + PAD,
+      PAD + (t.payment_status || "paid")          + PAD,
+      PAD + (t.payment_intent_id           || "") + PAD,
+      PAD + (t.stripe_session_id           || "") + PAD,
+      PAD + (t.expires_at                  || "") + PAD,
+      PAD + (t.used_at                     || "") + PAD,
+    ]);
+
+    const fill = i % 2 === 0 ? LIGHT_BLUE : WHITE;
+    row.height = 18;
+    row.eachCell(cell => {
+      cell.fill      = { type:"pattern", pattern:"solid", fgColor:{ argb:fill } };
+      cell.font      = { name:"Arial", size:10 };
+      cell.alignment = { vertical:"middle", horizontal:"left" };
+    });
+  });
+
+  // ── Blank row ────────────────────────────────────────────────
+  ws.addRow([]);
+
+  // ── Totals row ───────────────────────────────────────────────
+  const totalGross = tickets.reduce((s,t) => s + (t.amount||0), 0);
+  const totals     = vatBreakdown(totalGross);
+  const dataStart  = 2;
+  const dataEnd    = tickets.length + 1;
+
+  const totalsRow = ws.addRow([
+    PAD + "TOTALS" + PAD, "", "", "", "", "",
+    PAD + totals.gross_major + PAD,
+    PAD + totals.net_major   + PAD,
+    PAD + totals.vat_major   + PAD,
+    "", "", "", "", "", "", ""
+  ]);
+  totalsRow.height = 20;
+  totalsRow.eachCell((cell, colIdx) => {
+    cell.font   = { bold:true, name:"Arial", size:10, color:{ argb:"FF1B3A6B" } };
+    cell.fill   = { type:"pattern", pattern:"solid", fgColor:{ argb:"FFDBEAFE" } };
+    cell.border = { top:{ style:"medium", color:{ argb:"FF1B3A6B" } } };
+    cell.alignment = { vertical:"middle", horizontal:"left" };
+  });
+
+  // ── VAT note ─────────────────────────────────────────────────
+  ws.addRow([]);
+  const noteRow = ws.addRow([
+    PAD + "VAT Rate: 18% included in all prices. Net = Gross × 100/118. VAT = Gross − Net." + PAD
+  ]);
+  noteRow.getCell(1).font      = { italic:true, name:"Arial", size:9, color:{ argb:"FF718096" } };
+  noteRow.getCell(1).alignment = { vertical:"middle", horizontal:"left" };
+
+  return wb;
+}
+
+app.get("/admin/export.xlsx", requireAdmin, async (req, res) => {
+  try {
+    let q = supabase.from("tickets").select("*").order("created_at",{ascending:true});
+    if (req.query.status)    q = q.eq("status",    req.query.status);
+    if (req.query.tour_type) q = q.eq("tour_type", req.query.tour_type);
+    if (req.query.from)      q = q.gte("created_at", req.query.from);
+    if (req.query.to)        q = q.lte("created_at", toEndOfDay(req.query.to));
+
+    const { data: tickets, error } = await q;
+    if (error) return res.status(500).json({ error: error.message });
+
+    const wb       = await buildXlsx(tickets);
+    const filename = `rotunda-tickets-${new Date().toISOString().slice(0,10)}.xlsx`;
+
+    res.setHeader("Content-Type",        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
+    await wb.xlsx.write(res);
+    res.end();
+
+  } catch(err) {
+    console.error("❌ /admin/export.xlsx error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
 });
