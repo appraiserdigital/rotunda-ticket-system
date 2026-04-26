@@ -1,130 +1,222 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <title>Ticket Scanner</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-
   <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      margin: 0;
-      font-family: Arial;
-      text-align: center;
+      font-family: Arial, sans-serif;
       background: #111;
-      color: white;
+      color: #fff;
+      text-align: center;
+      min-height: 100vh;
+    }
+
+    header {
+      padding: 18px;
+      font-size: 18px;
+      font-weight: bold;
+      background: #1a1a2e;
+      border-bottom: 1px solid #2a2a4a;
     }
 
     #reader {
       width: 300px;
-      margin: 20px auto;
+      margin: 24px auto 0;
     }
 
+    #status-bar {
+      margin-top: 16px;
+      font-size: 13px;
+      color: #666;
+      min-height: 20px;
+    }
+
+    /* Full-screen result overlay */
     #result {
       position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      inset: 0;
       display: none;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
-      font-size: 40px;
+      font-size: 36px;
       font-weight: bold;
       text-align: center;
-      padding: 20px;
-      flex-direction: column;
+      padding: 30px;
+      gap: 12px;
+    }
+    #result.visible { display: flex; }
+
+    #result .sub {
+      font-size: 18px;
+      font-weight: normal;
+      opacity: 0.85;
+      margin-top: 4px;
     }
 
-    button {
-      font-size: 20px;
-      padding: 15px 25px;
-      margin-top: 20px;
+    .btn {
+      font-size: 18px;
+      font-weight: bold;
+      padding: 16px 32px;
       border: none;
-      border-radius: 10px;
+      border-radius: 12px;
       cursor: pointer;
+      margin-top: 8px;
+      min-width: 200px;
+      transition: opacity 0.15s;
     }
+    .btn:active { opacity: 0.7; }
 
-    .green { background: #0f0; color: #000; }
-    .orange { background: orange; color: #000; }
-    .red { background: red; color: #fff; }
-    .blue { background: #2196f3; color: #fff; }
+    .green  { background: #16a34a; color: #fff; }
+    .orange { background: #f97316; color: #fff; }
+    .red    { background: #dc2626; color: #fff; }
+    .blue   { background: #2563eb; color: #fff; }
+    .grey   { background: #374151; color: #fff; }
   </style>
 </head>
-
 <body>
 
-  <h2>Scan Ticket</h2>
+  <header>🎟 Ticket Scanner — Rotunda of Mosta</header>
   <div id="reader"></div>
+  <div id="status-bar">Initialising camera…</div>
 
-  <div id="result"></div>
+  <!-- Result overlay -->
+  <div id="result">
+    <div id="result-icon"></div>
+    <div id="result-name" class="sub"></div>
+    <button id="btn-confirm" class="btn blue" onclick="confirmEntry()" style="display:none">
+      ✅ Confirm Entry
+    </button>
+    <button id="btn-cancel"  class="btn grey" onclick="resetScanner()" style="display:none">
+      Cancel
+    </button>
+  </div>
 
-  <script src="https://unpkg.com/html5-qrcode"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <script>
-    const result = document.getElementById("result");
-    let scanned = false;
+    // ─────────────────────────────────────────
+    // State
+    // ─────────────────────────────────────────
+    let scanned      = false;
+    let pendingUseUrl = null;   // set after a VALID check, cleared on reset
 
-    function showScreen(text, colorClass, buttonHTML = "") {
-      result.className = colorClass;
-      result.innerHTML = text + "<br>" + buttonHTML;
-      result.style.display = "flex";
+    const resultEl    = document.getElementById("result");
+    const iconEl      = document.getElementById("result-icon");
+    const nameEl      = document.getElementById("result-name");
+    const btnConfirm  = document.getElementById("btn-confirm");
+    const btnCancel   = document.getElementById("btn-cancel");
+    const statusBar   = document.getElementById("status-bar");
+
+    // ─────────────────────────────────────────
+    // UI helpers
+    // ─────────────────────────────────────────
+    function showResult(bgClass, icon, name, showButtons) {
+      resultEl.className = bgClass + " visible";
+      iconEl.textContent  = icon;
+      nameEl.textContent  = name || "";
+      btnConfirm.style.display = showButtons ? "block" : "none";
+      btnCancel.style.display  = showButtons ? "block" : "none";
     }
 
     function resetScanner() {
-      scanned = false;
-      result.style.display = "none";
+      scanned       = false;
+      pendingUseUrl = null;
+      resultEl.className = "";
+      iconEl.textContent = nameEl.textContent = "";
+      statusBar.textContent = "Ready — point at ticket QR code";
     }
 
+    // ─────────────────────────────────────────
+    // QR scan handler
+    // ─────────────────────────────────────────
     function onScanSuccess(decodedText) {
       if (scanned) return;
       scanned = true;
+      statusBar.textContent = "Checking…";
 
+      // decodedText should be: https://your-domain.onrender.com/check/<uuid>
+      // Build the /use/ URL by replacing /check/ with /use/
+      const useUrl = decodedText.replace("/check/", "/use/");
+
+      if (decodedText === useUrl) {
+        // URL didn't contain /check/ — might be a foreign or malformed QR
+        showResult("red", "❌ INVALID QR", "", false);
+        setTimeout(resetScanner, 2500);
+        return;
+      }
+
+      // Store for confirmEntry to use
+      pendingUseUrl = useUrl;
+
+      // Call /check/:id first — read-only, safe
       fetch(decodedText)
-        .then(res => res.json())
+        .then(r => r.json())
         .then(data => {
-
           if (data.status === "VALID") {
-            showScreen(
-              "✅ VALID",
-              "green",
-              `<button onclick="confirmEntry('${decodedText}/verify')">Confirm Entry</button>`
-            );
-          } 
-          else if (data.status === "ALREADY_USED") {
-            showScreen("⚠️ ALREADY USED", "orange");
-            setTimeout(resetScanner, 2500);
-          } 
-          else {
-            showScreen("❌ INVALID", "red");
+            showResult("green", "✅ VALID", data.name || "", true);
+          } else if (data.status === "ALREADY_USED") {
+            showResult("orange", "⚠️ ALREADY USED", data.name || "", false);
+            setTimeout(resetScanner, 3000);
+          } else {
+            showResult("red", "❌ INVALID", "", false);
             setTimeout(resetScanner, 2500);
           }
-
         })
         .catch(() => {
-          showScreen("❌ ERROR", "red");
+          showResult("red", "❌ NETWORK ERROR", "", false);
           setTimeout(resetScanner, 2500);
         });
     }
 
-    function confirmEntry(url) {
-      fetch(url, { method: 'POST' })
-        .then(res => res.json())
-        .then(() => {
-          showScreen("🎟 ENTRY CONFIRMED", "blue");
-          setTimeout(resetScanner, 2000);
+    // ─────────────────────────────────────────
+    // Confirm entry — calls /use/:id
+    // ─────────────────────────────────────────
+    function confirmEntry() {
+      if (!pendingUseUrl) return;
+      btnConfirm.disabled = true;
+      btnCancel.disabled  = true;
+      btnConfirm.textContent = "Processing…";
+
+      fetch(pendingUseUrl)
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === "USED") {
+            showResult("blue", "🎟 ENTRY CONFIRMED", data.name || "", false);
+          } else if (data.status === "ALREADY_USED") {
+            showResult("orange", "⚠️ ALREADY USED", data.name || "", false);
+          } else {
+            showResult("red", "❌ CONFIRM FAILED", "", false);
+          }
+          setTimeout(resetScanner, 3000);
         })
         .catch(() => {
-          showScreen("❌ ERROR", "red");
-          setTimeout(resetScanner, 2000);
+          showResult("red", "❌ NETWORK ERROR", "", false);
+          setTimeout(resetScanner, 2500);
         });
     }
 
+    // ─────────────────────────────────────────
+    // Start camera
+    // ─────────────────────────────────────────
     const html5QrCode = new Html5Qrcode("reader");
 
     html5QrCode.start(
       { facingMode: "environment" },
-      { fps: 10, qrbox: 250 },
+      {
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        aspectRatio: 1.0,
+      },
       onScanSuccess
-    );
+    ).then(() => {
+      statusBar.textContent = "Ready — point at ticket QR code";
+    }).catch(err => {
+      statusBar.textContent = "Camera error: " + err;
+    });
   </script>
 
 </body>
