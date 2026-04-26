@@ -128,6 +128,15 @@
       resultEl.className = "";
       iconEl.textContent = nameEl.textContent = "";
       statusBar.textContent = "Ready — point at ticket QR code";
+
+      // Restart the scanner if it has stopped (html5-qrcode pauses after decode)
+      html5QrCode.getState && html5QrCode.getState() !== 2
+        ? html5QrCode.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+            onScanSuccess
+          ).catch(() => {})
+        : null;
     }
 
     // ─────────────────────────────────────────
