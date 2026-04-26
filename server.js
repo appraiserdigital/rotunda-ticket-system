@@ -47,55 +47,75 @@ function vatBreakdown(gross_cents) {
   };
 }
 
-async function sendTicketEmail(ticket, qrDataUrl) {
-  if (!ticket.email) return;
-  const ticketUrl = `${BASE_URL}/ticket/${ticket.id}`;
-  const expiry    = new Date(ticket.expires_at).toLocaleDateString("en-MT", { day:"2-digit", month:"long", year:"numeric" });
-  const amount    = (ticket.amount/100).toLocaleString("en-MT",{ style:"currency", currency:(ticket.currency||"EUR").toUpperCase() });
+async function sendMultiTicketEmail(tickets, totalCents, currency) {
+  const first = tickets[0];
+  if (!first.email) return;
+
+  const buyerName  = first.name.split(" — Ticket")[0];
+  const quantity   = tickets.length;
+  const totalStr   = (totalCents / 100).toLocaleString("en-MT", { style:"currency", currency:(currency||"EUR").toUpperCase() });
+  const expiry     = new Date(first.expires_at).toLocaleDateString("en-MT", { day:"2-digit", month:"long", year:"numeric" });
+  const subject    = quantity > 1
+    ? `Your ${quantity} Tickets — ${first.tour_type} | ${FOUNDATION_NAME}`
+    : `Your Ticket — ${first.tour_type} | ${FOUNDATION_NAME}`;
+
+  const ticketBlocks = tickets.map(t => {
+    const ticketUrl  = `${BASE_URL}/ticket/${t.id}`;
+    const unitStr    = (t.amount/100).toLocaleString("en-MT",{style:"currency",currency:(t.currency||"EUR").toUpperCase()});
+    return `
+      <tr><td style="padding:20px 0;border-bottom:1px solid #E2E8F0;">
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td width="160" align="center" style="padding-right:20px;">
+              <img src="${t.qrDataUrl}" width="140" height="140" alt="QR Code"
+                style="border:8px solid #fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1);display:block;"/>
+            </td>
+            <td valign="top">
+              <p style="margin:0 0 4px;color:#718096;font-size:11px;text-transform:uppercase;letter-spacing:1px;">${escapeHtml(t.tour_type)}</p>
+              <p style="margin:0 0 8px;color:#1A202C;font-size:16px;font-weight:bold;">${escapeHtml(t.name)}</p>
+              <p style="margin:0 0 12px;color:#4A5568;font-size:13px;">${unitStr} · Valid until ${expiry}</p>
+              <a href="${ticketUrl}" style="display:inline-block;background:#1B3A6B;color:#fff;text-decoration:none;padding:8px 20px;border-radius:6px;font-size:13px;font-weight:bold;">Open Ticket</a>
+            </td>
+          </tr>
+        </table>
+      </td></tr>`;
+  }).join("");
+
   try {
     await resend.emails.send({
-      from: process.env.EMAIL_FROM,
-      to:   ticket.email,
-      subject: `Your Ticket — ${ticket.tour_type} | ${FOUNDATION_NAME}`,
+      from:    process.env.EMAIL_FROM,
+      to:      first.email,
+      subject,
       html: `<!DOCTYPE html><html><head><meta charset="UTF-8"/></head>
 <body style="margin:0;padding:0;background:#f4f6fa;font-family:Arial,sans-serif;">
 <table width="100%" cellpadding="0" cellspacing="0" style="padding:30px 0;">
-<tr><td align="center"><table width="560" cellpadding="0" cellspacing="0"
-  style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);">
-<tr><td style="background:#1B3A6B;padding:28px 32px;">
-  <p style="margin:0;color:#B8962E;font-size:12px;letter-spacing:2px;font-weight:bold;">YOUR TICKET</p>
-  <p style="margin:8px 0 0;color:#fff;font-size:22px;font-weight:bold;">${FOUNDATION_NAME}</p>
-</td></tr>
-<tr><td style="padding:28px 32px 0;">
-  <p style="margin:0 0 4px;color:#718096;font-size:12px;text-transform:uppercase;">Tour</p>
-  <p style="margin:0 0 20px;color:#1B3A6B;font-size:20px;font-weight:bold;">${escapeHtml(ticket.tour_type)}</p>
-  <p style="margin:0 0 4px;color:#718096;font-size:12px;text-transform:uppercase;">Name</p>
-  <p style="margin:0 0 20px;color:#1A202C;font-size:16px;">${escapeHtml(ticket.name)}</p>
-  <table width="100%"><tr>
-    <td width="50%"><p style="margin:0 0 4px;color:#718096;font-size:12px;text-transform:uppercase;">Amount Paid</p>
-      <p style="margin:0;color:#1A202C;font-size:16px;font-weight:bold;">${amount}</p></td>
-    <td width="50%"><p style="margin:0 0 4px;color:#718096;font-size:12px;text-transform:uppercase;">Valid Until</p>
-      <p style="margin:0;color:#1A202C;font-size:16px;">${expiry}</p></td>
-  </tr></table>
-</td></tr>
-<tr><td style="padding:28px 32px;text-align:center;">
-  <p style="margin:0 0 16px;color:#4A5568;font-size:14px;">Present this QR code at the entrance</p>
-  <img src="${qrDataUrl}" width="200" height="200" alt="QR Code"
-    style="border:12px solid #fff;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.12);"/>
-</td></tr>
-<tr><td style="padding:0 32px 28px;text-align:center;">
-  <a href="${ticketUrl}" style="display:inline-block;background:#1B3A6B;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:15px;font-weight:bold;">Open My Ticket</a>
-</td></tr>
-<tr><td style="background:#F4F6FA;padding:20px 32px;border-top:1px solid #E2E8F0;">
-  <p style="margin:0;color:#718096;font-size:12px;line-height:1.6;">
-    This ticket is valid for one entry and expires on ${expiry}.
-    Each QR code is unique and can only be scanned once.
-    Keep this email safe — it is your proof of purchase.
-  </p>
-</td></tr>
-</table></td></tr></table></body></html>`,
+<tr><td align="center">
+<table width="580" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);">
+
+  <tr><td style="background:#1B3A6B;padding:28px 32px;">
+    <p style="margin:0;color:#B8962E;font-size:12px;letter-spacing:2px;font-weight:bold;">YOUR ${quantity > 1 ? quantity + " TICKETS" : "TICKET"}</p>
+    <p style="margin:8px 0 4px;color:#fff;font-size:22px;font-weight:bold;">${FOUNDATION_NAME}</p>
+    <p style="margin:0;color:#BEE3F8;font-size:14px;">${escapeHtml(buyerName)} · ${totalStr} total</p>
+  </td></tr>
+
+  <tr><td style="padding:24px 32px 0;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      ${ticketBlocks}
+    </table>
+  </td></tr>
+
+  <tr><td style="background:#F4F6FA;padding:20px 32px;border-top:1px solid #E2E8F0;margin-top:24px;">
+    <p style="margin:0;color:#718096;font-size:12px;line-height:1.7;">
+      Each QR code is unique and valid for <strong>one entry only</strong>. Tickets expire on ${expiry}.
+      Keep this email safe — it is your proof of purchase for all ${quantity} ticket${quantity>1?"s":""}.
+    </p>
+  </td></tr>
+
+</table>
+</td></tr></table>
+</body></html>`,
     });
-    console.log(`📧 Ticket email sent to ${ticket.email}`);
+    console.log(`📧 Email sent to ${first.email} — ${quantity} ticket(s)`);
   } catch (err) {
     console.error("⚠️  Email send failed:", err.message);
   }
@@ -110,17 +130,23 @@ function csvCell(val = "") {
 }
 function toEndOfDay(d="") { return d.length===10 ? `${d}T23:59:59.999Z` : d; }
 
-// SUCCESS
+// SUCCESS — handles single and multi-ticket orders
 app.get("/success", async (req, res) => {
   const sessionId = req.query.session_id;
   if (!sessionId) return res.status(400).send("Missing session_id.");
   console.log(`🔍 /success — session: ${sessionId}`);
-  try {
-    const { data: existing, error: lookupErr } = await supabase
-      .from("tickets").select("id").eq("stripe_session_id", sessionId).maybeSingle();
-    if (lookupErr) { console.error("❌ Supabase lookup:", lookupErr); return res.status(500).send("Database error during lookup."); }
-    if (existing) { console.log(`ℹ️  Ticket exists: ${existing.id}`); return res.redirect(`/ticket/${existing.id}`); }
 
+  try {
+    // ── Idempotency: check if any tickets already exist for this session ──
+    const { data: existing, error: lookupErr } = await supabase
+      .from("tickets").select("id").eq("stripe_session_id", sessionId).limit(1).maybeSingle();
+    if (lookupErr) { console.error("❌ Supabase lookup:", lookupErr); return res.status(500).send("Database error during lookup."); }
+    if (existing) {
+      console.log(`ℹ️  Tickets already exist for session: ${sessionId}`);
+      return res.redirect(`/order/${sessionId}`);
+    }
+
+    // ── Retrieve session from Stripe ──
     let session;
     try {
       session = await stripe.checkout.sessions.retrieve(sessionId, {
@@ -133,48 +159,135 @@ app.get("/success", async (req, res) => {
 
     if (session.payment_status !== "paid") return res.status(402).send(`Payment not completed (${session.payment_status}).`);
 
-    const lineItem = session.line_items?.data?.[0];
-    const tourType = lineItem?.price?.product?.name || lineItem?.description || "General Admission";
+    // ── Get tour type and quantity ──
+    const lineItem  = session.line_items?.data?.[0];
+    const tourType  = lineItem?.price?.product?.name || lineItem?.description || "General Admission";
+    const quantity  = lineItem?.quantity || 1;
+    const unitPrice = quantity > 0 ? Math.round(session.amount_total / quantity) : session.amount_total;
 
-    const now = new Date();
+    const buyerName = session.customer_details?.name  || "Guest";
+    const email     = session.customer_details?.email || "";
+    const currency  = (session.currency || "eur").toLowerCase();
+    const now       = new Date();
     const expiresAt = new Date(now);
     expiresAt.setMonth(expiresAt.getMonth() + TICKET_VALIDITY_MONTHS);
 
-    const ticketId = uuidv4();
-    const record = {
-      id: ticketId,
-      stripe_session_id: session.id,
-      payment_intent_id: session.payment_intent || null,
-      name:     session.customer_details?.name  || "Guest",
-      email:    session.customer_details?.email || "",
-      tour_type: tourType,
-      amount:   session.amount_total,
-      currency: (session.currency || "eur").toLowerCase(),
-      payment_status: session.payment_status,
-      status:   "VALID",
-      created_at: now.toISOString(),
-      expires_at: expiresAt.toISOString(),
-      used_at: null,
-    };
-
-    const { error: insertErr } = await supabase.from("tickets").insert([record]);
-    if (insertErr) {
-      if (insertErr.code === "23505") {
-        const { data: race } = await supabase.from("tickets").select("id").eq("stripe_session_id", sessionId).single();
-        if (race) return res.redirect(`/ticket/${race.id}`);
-      }
-      console.error("❌ Supabase insert:", insertErr);
-      return res.status(500).send("Database error creating ticket.");
+    // ── Create one record per ticket ──
+    const records = [];
+    for (let i = 0; i < quantity; i++) {
+      const ticketLabel = quantity > 1 ? `${buyerName} — Ticket ${i + 1} of ${quantity}` : buyerName;
+      records.push({
+        id:                uuidv4(),
+        stripe_session_id: session.id,
+        payment_intent_id: session.payment_intent || null,
+        name:              ticketLabel,
+        email,
+        tour_type:         tourType,
+        amount:            unitPrice,            // per-ticket price for financial accuracy
+        currency,
+        payment_status:    session.payment_status,
+        status:            "VALID",
+        created_at:        now.toISOString(),
+        expires_at:        expiresAt.toISOString(),
+        used_at:           null,
+        order_quantity:    quantity,             // stored for reference
+        order_index:       i + 1,               // position in order (1-based)
+      });
     }
 
-    console.log(`✅ Ticket: ${ticketId} | ${record.email} | ${tourType} | ${record.currency.toUpperCase()} ${(record.amount/100).toFixed(2)}`);
-    const checkUrl  = `${BASE_URL}/check/${ticketId}`;
-    const qrDataUrl = await QRCode.toDataURL(checkUrl, { errorCorrectionLevel:"H", margin:2, width:300 });
-    sendTicketEmail(record, qrDataUrl);
-    return res.redirect(`/ticket/${ticketId}`);
+    const { error: insertErr } = await supabase.from("tickets").insert(records);
+    if (insertErr) {
+      if (insertErr.code === "23505") {
+        console.warn("⚠️  Race condition — redirecting to order page");
+        return res.redirect(`/order/${sessionId}`);
+      }
+      console.error("❌ Supabase insert:", insertErr);
+      return res.status(500).send("Database error creating tickets.");
+    }
+
+    console.log(`✅ ${quantity} ticket(s) created for ${email} | ${tourType} | ${currency.toUpperCase()} ${(session.amount_total/100).toFixed(2)} total`);
+
+    // ── Generate QR codes and send single email with all tickets ──
+    const ticketsWithQR = await Promise.all(records.map(async t => ({
+      ...t,
+      qrDataUrl: await QRCode.toDataURL(`${BASE_URL}/check/${t.id}`, { errorCorrectionLevel:"H", margin:2, width:220 }),
+    })));
+
+    sendMultiTicketEmail(ticketsWithQR, session.amount_total, currency);
+
+    // ── Redirect: single ticket → ticket page, multiple → order page ──
+    if (quantity === 1) {
+      return res.redirect(`/ticket/${records[0].id}`);
+    }
+    return res.redirect(`/order/${sessionId}`);
+
   } catch (err) {
     console.error("❌ /success error:", err);
     return res.status(500).send("Unexpected server error.");
+  }
+});
+
+// ORDER PAGE — shows all tickets for a multi-ticket purchase
+app.get("/order/:sessionId", async (req, res) => {
+  try {
+    const { data: tickets, error } = await supabase
+      .from("tickets")
+      .select("*")
+      .eq("stripe_session_id", req.params.sessionId)
+      .order("order_index", { ascending: true });
+
+    if (error || !tickets?.length) return res.status(404).send("Order not found.");
+
+    const first     = tickets[0];
+    const buyerName = first.name.split(" — Ticket")[0];
+    const total     = tickets.reduce((s, t) => s + (t.amount || 0), 0);
+    const totalStr  = (total / 100).toLocaleString("en-MT", { style:"currency", currency:(first.currency||"EUR").toUpperCase() });
+    const dateStr   = new Date(first.created_at).toLocaleDateString("en-MT", { day:"2-digit", month:"long", year:"numeric" });
+
+    const ticketCards = await Promise.all(tickets.map(async t => {
+      const qr = await QRCode.toDataURL(`${BASE_URL}/check/${t.id}`, { errorCorrectionLevel:"H", margin:2, width:180 });
+      const isExpired = t.expires_at && new Date(t.expires_at) < new Date();
+      const statusCol = (t.status==="VALID" && !isExpired) ? "#22c55e" : "#ef4444";
+      const label     = isExpired ? "EXPIRED" : t.status;
+      return `
+        <div style="background:#1a1a2e;border:1px solid #2a2a4a;border-radius:16px;padding:24px;text-align:center;flex:1;min-width:200px;max-width:240px;">
+          <p style="font-size:13px;color:#93c5fd;font-weight:bold;margin-bottom:12px;">${escapeHtml(t.tour_type)}</p>
+          <div style="background:#fff;border-radius:10px;padding:10px;display:inline-block;margin-bottom:14px;">
+            <img src="${qr}" width="160" height="160" alt="QR"/>
+          </div>
+          <p style="font-size:14px;color:#fff;font-weight:bold;margin-bottom:4px;">${escapeHtml(t.name)}</p>
+          <p style="font-size:12px;color:#999;margin-bottom:10px;">${(t.amount/100).toLocaleString("en-MT",{style:"currency",currency:(t.currency||"EUR").toUpperCase()})}</p>
+          <span style="display:inline-block;padding:4px 16px;border-radius:12px;font-size:11px;font-weight:bold;color:${statusCol};border:1px solid ${statusCol};background:${statusCol}22;" id="badge-${t.id}">${label}</span>
+          <br><a href="/ticket/${t.id}" style="display:inline-block;margin-top:12px;font-size:12px;color:#3b82f6;text-decoration:none;">Open full ticket →</a>
+        </div>`;
+    }));
+
+    return res.send(`<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Your Order — ${escapeHtml(FOUNDATION_NAME)}</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Arial,sans-serif;background:#0f0f1a;color:#e5e5e5;min-height:100vh;padding:30px 20px;}
+.wrap{max-width:900px;margin:0 auto;}
+.header{text-align:center;margin-bottom:32px;}
+.header h1{font-size:24px;color:#fff;margin-bottom:6px;}
+.header p{font-size:14px;color:#888;}
+.cards{display:flex;flex-wrap:wrap;gap:16px;justify-content:center;}
+</style></head><body>
+<div class="wrap">
+  <div class="header">
+    <p style="color:#B8962E;font-size:12px;letter-spacing:2px;font-weight:bold;text-transform:uppercase;margin-bottom:8px;">Your Order</p>
+    <h1>🎟 ${escapeHtml(FOUNDATION_NAME)}</h1>
+    <p>${escapeHtml(buyerName)} · ${dateStr} · ${tickets.length} ticket${tickets.length>1?"s":""} · ${totalStr}</p>
+  </div>
+  <div class="cards">${ticketCards.join("")}</div>
+  <p style="text-align:center;margin-top:28px;font-size:12px;color:#444;">Each QR code is unique and valid for one entry. Bookmark this page to access your tickets again.</p>
+</div>
+</body></html>`);
+
+  } catch (err) {
+    console.error("❌ /order error:", err);
+    return res.status(500).send("Error loading order.");
   }
 });
 
