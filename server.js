@@ -319,6 +319,7 @@ ticketIds.forEach(id => {
   }, 4000);
 });
 </script>
+</body></html>`);
 
   } catch (err) {
     console.error("❌ /order error:", err);
