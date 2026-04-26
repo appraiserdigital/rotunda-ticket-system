@@ -283,7 +283,42 @@ body{font-family:Arial,sans-serif;background:#0f0f1a;color:#e5e5e5;min-height:10
   <div class="cards">${ticketCards.join("")}</div>
   <p style="text-align:center;margin-top:28px;font-size:12px;color:#444;">Each QR code is unique and valid for one entry. Bookmark this page to access your tickets again.</p>
 </div>
-</body></html>`);
+<script>
+// Poll each ticket every 4 seconds and update its badge
+const ticketIds = ${JSON.stringify(tickets.map(t => t.id))};
+const BASE = "${BASE_URL}";
+
+function applyBadge(id, status) {
+  const badge = document.getElementById("badge-" + id);
+  if (!badge) return;
+  if (status === "USED" || status === "ALREADY_USED") {
+    badge.style.cssText = "display:inline-block;padding:4px 16px;border-radius:12px;font-size:11px;font-weight:bold;color:#ef4444;border:1px solid #ef4444;background:#ef444422;";
+    badge.textContent = "USED";
+  } else if (status === "EXPIRED") {
+    badge.style.cssText = "display:inline-block;padding:4px 16px;border-radius:12px;font-size:11px;font-weight:bold;color:#f59e0b;border:1px solid #f59e0b;background:#f59e0b22;";
+    badge.textContent = "EXPIRED";
+  }
+}
+
+const intervals = {};
+ticketIds.forEach(id => {
+  let last = "VALID";
+  intervals[id] = setInterval(() => {
+    fetch(BASE + "/check/" + id)
+      .then(r => r.json())
+      .then(d => {
+        if (d.status !== last) {
+          last = d.status;
+          applyBadge(id, d.status);
+          // Stop polling once terminal state reached
+          if (d.status === "USED" || d.status === "ALREADY_USED" || d.status === "EXPIRED") {
+            clearInterval(intervals[id]);
+          }
+        }
+      }).catch(() => {});
+  }, 4000);
+});
+</script>
 
   } catch (err) {
     console.error("❌ /order error:", err);
