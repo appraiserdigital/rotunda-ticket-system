@@ -20,11 +20,18 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
 
   let event;
 
-  try {
-    event = JSON.parse(req.body.toString());
-  } catch {
-    return res.sendStatus(400);
-  }
+try {
+  const sig = req.headers['stripe-signature'];
+
+  event = stripe.webhooks.constructEvent(
+    req.body,
+    sig,
+    process.env.STRIPE_WEBHOOK_SECRET
+  );
+} catch (err) {
+  console.log("❌ Webhook signature error:", err.message);
+  return res.sendStatus(400);
+}
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
