@@ -19,6 +19,8 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 // 🔴 WEBHOOK (FIXED + LOGGING)
 app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
 
+  console.log("🔥 WEBHOOK HIT");
+
   let event;
 
   try {
