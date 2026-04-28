@@ -525,11 +525,6 @@ app.get("/admin/export.csv", requireAdmin, async (req, res) => {
   } catch(err){ res.status(500).json({error:"Server error"}); }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌐 Base URL: ${BASE_URL}`);
-});
-
 // ADMIN XLSX EXPORT (formatted)
 // GET /admin/export.xlsx?token=xxx&from=...&to=...
 const XLSX_HEADERS = [
@@ -658,4 +653,278 @@ app.get("/admin/export.xlsx", requireAdmin, async (req, res) => {
     console.error("❌ /admin/export.xlsx error:", err);
     res.status(500).json({ error: "Server error" });
   }
+});
+
+// DAILY CLOSURE REPORT
+// GET /admin/day-report?token=xxx&from=YYYY-MM-DD&to=YYYY-MM-DD
+// Returns a printer-friendly HTML page
+app.get("/admin/day-report", requireAdmin, async (req, res) => {
+  try {
+    const from = req.query.from || new Date().toISOString().slice(0, 10);
+    const to   = req.query.to   || from;
+
+    let q = supabase
+      .from("tickets")
+      .select("*")
+      .gte("created_at", from)
+      .lte("created_at", toEndOfDay(to))
+      .order("created_at", { ascending: true });
+
+    if (req.query.tour_type) q = q.eq("tour_type", req.query.tour_type);
+
+    const { data: tickets, error } = await q;
+    if (error) return res.status(500).send("Database error");
+
+    const total        = tickets.length;
+    const arrived      = tickets.filter(t => t.status === "USED").length;
+    const noShow       = tickets.filter(t => t.status === "VALID").length;
+    const totalGross   = tickets.reduce((s, t) => s + (t.amount || 0), 0);
+    const vat          = vatBreakdown(totalGross);
+
+    const dateLabel = from === to
+      ? new Date(from).toLocaleDateString("en-MT", { weekday:"long", day:"2-digit", month:"long", year:"numeric" })
+      : `${new Date(from).toLocaleDateString("en-MT", { day:"2-digit", month:"long", year:"numeric" })} — ${new Date(to).toLocaleDateString("en-MT", { day:"2-digit", month:"long", year:"numeric" })}`;
+
+    const generatedAt = new Date().toLocaleString("en-MT", {
+      day:"2-digit", month:"long", year:"numeric",
+      hour:"2-digit", minute:"2-digit"
+    });
+
+    // Group by tour
+    const byTour = {};
+    for (const t of tickets) {
+      const tour = t.tour_type || "General Admission";
+      if (!byTour[tour]) byTour[tour] = { count:0, arrived:0, gross:0 };
+      byTour[tour].count++;
+      byTour[tour].gross += t.amount || 0;
+      if (t.status === "USED") byTour[tour].arrived++;
+    }
+
+    const tourRows = Object.entries(byTour).map(([tour, d]) => {
+      const v = vatBreakdown(d.gross);
+      return `<tr>
+        <td>${escapeHtml(tour)}</td>
+        <td class="num">${d.count}</td>
+        <td class="num">${d.arrived}</td>
+        <td class="num">${d.count - d.arrived}</td>
+        <td class="num">€${v.gross_major}</td>
+        <td class="num">€${v.net_major}</td>
+        <td class="num">€${v.vat_major}</td>
+      </tr>`;
+    }).join("");
+
+    const ticketRows = tickets.map((t, i) => {
+      const dt      = new Date(t.created_at);
+      const timeStr = dt.toLocaleTimeString("en-MT", { hour:"2-digit", minute:"2-digit" });
+      const v       = vatBreakdown(t.amount || 0);
+      const arrived = t.status === "USED";
+      const usedTime = t.used_at
+        ? new Date(t.used_at).toLocaleTimeString("en-MT", { hour:"2-digit", minute:"2-digit" })
+        : "—";
+      return `<tr class="${arrived ? "" : "no-show"}">
+        <td class="num">${i + 1}</td>
+        <td>${timeStr}</td>
+        <td>${escapeHtml(t.name)}</td>
+        <td>${escapeHtml(t.email)}</td>
+        <td>${escapeHtml(t.tour_type || "General Admission")}</td>
+        <td class="num">€${v.gross_major}</td>
+        <td class="num ${arrived ? "arrived" : "noshow"}">${arrived ? "✓ ARRIVED " + usedTime : "NO SHOW"}</td>
+      </tr>`;
+    }).join("");
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Daily Closure Report — ${escapeHtml(FOUNDATION_NAME)}</title>
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      body { margin: 0; }
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 12px; color: #1a202c; background: #fff; padding: 30px; }
+
+    .no-print {
+      background: #1B3A6B; color: #fff; padding: 12px 20px;
+      border-radius: 8px; margin-bottom: 24px; display: flex;
+      align-items: center; gap: 16px;
+    }
+    .no-print button {
+      background: #B8962E; color: #fff; border: none; padding: 8px 20px;
+      border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer;
+    }
+    .no-print span { font-size: 14px; font-weight: bold; }
+
+    .header { border-bottom: 3px solid #1B3A6B; padding-bottom: 14px; margin-bottom: 20px; }
+    .header h1 { font-size: 18px; color: #1B3A6B; margin-bottom: 2px; }
+    .header .sub { font-size: 12px; color: #718096; }
+    .header .date { font-size: 15px; font-weight: bold; color: #1B3A6B; margin-top: 6px; }
+
+    .notice {
+      background: #EBF8FF; border: 1px solid #BEE3F8;
+      border-radius: 6px; padding: 10px 14px; margin-bottom: 20px;
+      font-size: 11px; color: #2C5282; line-height: 1.6;
+    }
+    .notice strong { display: block; margin-bottom: 2px; font-size: 12px; }
+
+    .summary-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 12px; margin-bottom: 20px;
+    }
+    .summary-box {
+      border: 1px solid #E2E8F0; border-radius: 6px;
+      padding: 10px 12px; text-align: center;
+    }
+    .summary-box .lbl { font-size: 10px; color: #718096; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+    .summary-box .val { font-size: 20px; font-weight: bold; color: #1B3A6B; }
+    .summary-box.green .val { color: #166534; }
+    .summary-box.orange .val { color: #92400e; }
+
+    .vat-row {
+      display: flex; gap: 12px; margin-bottom: 20px;
+      background: #F4F6FA; border: 1px solid #E2E8F0;
+      border-radius: 6px; padding: 10px 14px;
+      font-size: 11px; color: #4A5568;
+    }
+    .vat-row span { margin-right: 24px; }
+    .vat-row strong { color: #1B3A6B; }
+
+    h2 { font-size: 13px; color: #1B3A6B; border-bottom: 1px solid #E2E8F0;
+         padding-bottom: 4px; margin-bottom: 10px; margin-top: 20px; }
+
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 11px; }
+    th { background: #1B3A6B; color: #fff; padding: 7px 8px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .4px; }
+    td { padding: 6px 8px; border-bottom: 1px solid #E2E8F0; }
+    tr:nth-child(even) td { background: #F9FAFB; }
+    tr.no-show td { color: #9CA3AF; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .arrived { color: #166534; font-weight: bold; }
+    .noshow  { color: #9CA3AF; }
+
+    .totals-row td { font-weight: bold; border-top: 2px solid #1B3A6B; background: #EBF8FF !important; }
+
+    .footer {
+      margin-top: 30px; border-top: 1px solid #E2E8F0;
+      padding-top: 12px; font-size: 10px; color: #9CA3AF;
+      display: flex; justify-content: space-between;
+    }
+    .sign-line {
+      margin-top: 30px; display: flex; gap: 40px;
+    }
+    .sign-box { flex: 1; }
+    .sign-box .line { border-bottom: 1px solid #1B3A6B; margin-bottom: 4px; height: 30px; }
+    .sign-box .lbl  { font-size: 10px; color: #718096; }
+  </style>
+</head>
+<body>
+
+  <div class="no-print">
+    <span>📋 Daily Closure Report — Ready to Print</span>
+    <button onclick="window.print()">🖨 Print / Save as PDF</button>
+  </div>
+
+  <div class="header">
+    <h1>${escapeHtml(FOUNDATION_NAME)}</h1>
+    <div class="sub">Online Pre-Booking Closure Report</div>
+    <div class="date">${dateLabel}</div>
+    <div class="sub" style="margin-top:4px;">Generated: ${generatedAt}</div>
+  </div>
+
+  <div class="notice">
+    <strong>⚠️ Note for Accountant &amp; Reception</strong>
+    All transactions listed below have been collected in full via Stripe online payment at the time of booking.
+    These amounts do <strong>not</strong> require processing through the till or POS terminal.
+    Fiscal receipts issued at reception for these visitors should be marked <strong>"Pre-Paid Online — Stripe Ref: see attached"</strong>.
+    The Stripe payment reference for each ticket is available in the full Excel export.
+  </div>
+
+  <div class="summary-grid">
+    <div class="summary-box">
+      <div class="lbl">Online Bookings</div>
+      <div class="val">${total}</div>
+    </div>
+    <div class="summary-box green">
+      <div class="lbl">Arrived</div>
+      <div class="val">${arrived}</div>
+    </div>
+    <div class="summary-box orange">
+      <div class="lbl">No Show</div>
+      <div class="val">${noShow}</div>
+    </div>
+    <div class="summary-box">
+      <div class="lbl">Total Collected</div>
+      <div class="val">€${vat.gross_major}</div>
+    </div>
+  </div>
+
+  <div class="vat-row">
+    <span>Gross Revenue: <strong>€${vat.gross_major}</strong></span>
+    <span>Net (excl. 5% VAT): <strong>€${vat.net_major}</strong></span>
+    <span>VAT @ 5%: <strong>€${vat.vat_major}</strong></span>
+    <span style="margin-left:auto;font-style:italic;">All amounts are VAT-inclusive at the Malta tour rate of 5%</span>
+  </div>
+
+  ${Object.keys(byTour).length > 1 ? `
+  <h2>Revenue by Tour Type</h2>
+  <table>
+    <thead><tr>
+      <th>Tour</th><th class="num">Bookings</th><th class="num">Arrived</th>
+      <th class="num">No Show</th><th class="num">Gross (€)</th>
+      <th class="num">Net (€)</th><th class="num">VAT 5% (€)</th>
+    </tr></thead>
+    <tbody>${tourRows}</tbody>
+  </table>` : ""}
+
+  <h2>Visitor List</h2>
+  <table>
+    <thead><tr>
+      <th>#</th><th>Booked At</th><th>Name</th><th>Email</th>
+      <th>Tour</th><th class="num">Amount</th><th>Status</th>
+    </tr></thead>
+    <tbody>
+      ${ticketRows}
+      <tr class="totals-row">
+        <td colspan="5">TOTAL</td>
+        <td class="num">€${vat.gross_major}</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="sign-line">
+    <div class="sign-box">
+      <div class="line"></div>
+      <div class="lbl">Prepared by (Reception)</div>
+    </div>
+    <div class="sign-box">
+      <div class="line"></div>
+      <div class="lbl">Date &amp; Time</div>
+    </div>
+    <div class="sign-box">
+      <div class="line"></div>
+      <div class="lbl">Verified by (Accounts)</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>${escapeHtml(FOUNDATION_NAME)} — Confidential Financial Document</span>
+    <span>Powered by App-Raiser Digital</span>
+  </div>
+
+</body>
+</html>`;
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(html);
+
+  } catch(err) {
+    console.error("❌ /admin/day-report error:", err);
+    res.status(500).send("Server error generating report");
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🌐 Base URL: ${BASE_URL}`);
 });
