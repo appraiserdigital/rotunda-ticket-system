@@ -144,6 +144,7 @@
         <button class="btn-outline btn-sm" onclick="resetFilters()">Reset</button>
         <button class="btn-primary btn-sm" onclick="loadAll()">Apply</button>
         <button class="btn-green btn-sm" onclick="exportXlsx()">⬇ Export Excel</button>
+        <button class="btn-sm" style="background:#B8962E;color:#fff;" onclick="printDayReport()">🖨 Day Report</button>
       </div>
     </div>
 
@@ -367,6 +368,13 @@ function exportXlsx() {
   const params = new URLSearchParams({ token: ADMIN_TOKEN, ...f });
   for (const [k,v] of [...params.entries()]) { if (!v) params.delete(k); }
   window.open(`/admin/export.xlsx?${params}`, "_blank");
+}
+
+function printDayReport() {
+  const f = getFilters();
+  const params = new URLSearchParams({ token: ADMIN_TOKEN, ...f });
+  for (const [k,v] of [...params.entries()]) { if (!v) params.delete(k); }
+  window.open(`/admin/day-report?${params}`, "_blank");
 }
 
 // ── Helpers ──────────────────────────────────────────
