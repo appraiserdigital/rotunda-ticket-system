@@ -37,7 +37,7 @@ function requireAdmin(req, res, next) {
 }
 
 function vatBreakdown(gross_cents) {
-  const net_cents = Math.round(gross_cents * 100 / 118);
+  const net_cents = Math.round(gross_cents * 100 / 105);
   const vat_cents = gross_cents - net_cents;
   return {
     gross_cents, net_cents, vat_cents,
@@ -504,7 +504,7 @@ app.get("/admin/export.csv", requireAdmin, async (req, res) => {
     const { data: tickets, error } = await q;
     if (error) return res.status(500).json({error:error.message});
 
-    const HEADERS=["ticket_id","date","time_utc","name","email","tour_type","gross_eur","net_eur_excl_vat","vat_18pct","currency","ticket_status","payment_status","payment_intent_id","stripe_session_id","expires_at","used_at"];
+    const HEADERS=["ticket_id","date","time_utc","name","email","tour_type","gross_eur","net_eur_excl_vat","vat_5pct","currency","ticket_status","payment_status","payment_intent_id","stripe_session_id","expires_at","used_at"];
     const rows=tickets.map(t=>{
       const dt=new Date(t.created_at);
       const v=vatBreakdown(t.amount||0);
@@ -515,7 +515,7 @@ app.get("/admin/export.csv", requireAdmin, async (req, res) => {
     const totals=vatBreakdown(totalGross);
     rows.push("");
     rows.push(`TOTALS,,,,,,${totals.gross_major},${totals.net_major},${totals.vat_major},,,,,,`);
-    rows.push(`"VAT Rate: 18% included in all prices. Net = Gross x 100/118. VAT = Gross - Net.",,,,,,,,,,,,,,`);
+    rows.push(`"VAT Rate: 5% included in all prices (Malta VAT rate for tours). Net = Gross x 100/105. VAT = Gross - Net.",,,,,,,,,,,,,,`);
 
     const csv=[HEADERS.join(","),...rows].join("\r\n");
     const filename=`rotunda-tickets-${new Date().toISOString().slice(0,10)}.csv`;
@@ -534,7 +534,7 @@ app.listen(PORT, () => {
 // GET /admin/export.xlsx?token=xxx&from=...&to=...
 const XLSX_HEADERS = [
   "ticket_id","date","time_utc","name","email","tour_type",
-  "gross_eur","net_eur_excl_vat","vat_18pct","currency",
+  "gross_eur","net_eur_excl_vat","vat_5pct","currency",
   "ticket_status","payment_status","payment_intent_id","stripe_session_id",
   "expires_at","used_at"
 ];
@@ -626,7 +626,7 @@ async function buildXlsx(tickets) {
   // ── VAT note ─────────────────────────────────────────────────
   ws.addRow([]);
   const noteRow = ws.addRow([
-    PAD + "VAT Rate: 18% included in all prices. Net = Gross × 100/118. VAT = Gross − Net." + PAD
+    PAD + "VAT Rate: 5% included in all prices (Malta VAT rate for tours). Net = Gross × 100/105. VAT = Gross − Net." + PAD
   ]);
   noteRow.getCell(1).font      = { italic:true, name:"Arial", size:9, color:{ argb:"FF718096" } };
   noteRow.getCell(1).alignment = { vertical:"middle", horizontal:"left" };
