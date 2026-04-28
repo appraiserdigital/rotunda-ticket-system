@@ -150,8 +150,8 @@
     <!-- Summary cards -->
     <div class="cards">
       <div class="card green"><div class="label">Gross Revenue</div><div class="value" id="stat-revenue">—</div><div class="sub" id="stat-currency"></div></div>
-      <div class="card teal"><div class="label">Net (excl. VAT)</div><div class="value" id="stat-net">—</div><div class="sub">before 18% VAT</div></div>
-      <div class="card blue"><div class="label">VAT Collected</div><div class="value" id="stat-vat">—</div><div class="sub">18% included</div></div>
+      <div class="card teal"><div class="label">Net (excl. VAT)</div><div class="value" id="stat-net">—</div><div class="sub">before 5% VAT</div></div>
+      <div class="card blue"><div class="label">VAT Collected</div><div class="value" id="stat-vat">—</div><div class="sub">5% included</div></div>
       <div class="card purple"><div class="label">Tickets Sold</div><div class="value" id="stat-total">—</div><div class="sub">total records</div></div>
       <div class="card orange"><div class="label">Attended</div><div class="value" id="stat-used">—</div><div class="sub" id="stat-used-pct"></div></div>
       <div class="card red"><div class="label">Remaining</div><div class="value" id="stat-valid">—</div><div class="sub">not yet scanned</div></div>
@@ -164,7 +164,7 @@
         <table>
           <thead><tr>
             <th>Tour</th><th>Tickets Sold</th><th>Attended</th><th>Remaining</th>
-            <th class="num">Gross (€)</th><th class="num">Net excl. VAT (€)</th><th class="num">VAT 18% (€)</th>
+            <th class="num">Gross (€)</th><th class="num">Net excl. VAT (€)</th><th class="num">VAT 5% (€)</th>
           </tr></thead>
           <tbody id="tour-body"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
         </table>
@@ -178,7 +178,7 @@
         <table>
           <thead><tr>
             <th>Date</th><th>Tickets</th>
-            <th class="num">Gross (€)</th><th class="num">Net excl. VAT (€)</th><th class="num">VAT 18% (€)</th>
+            <th class="num">Gross (€)</th><th class="num">Net excl. VAT (€)</th><th class="num">VAT 5% (€)</th>
             <th>Currency</th>
           </tr></thead>
           <tbody id="daily-body"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
@@ -335,7 +335,7 @@ async function loadTickets() {
       const usedAt  = t.used_at ? new Date(t.used_at).toLocaleString("en-MT") : "—";
       const expiry  = t.expires_at ? new Date(t.expires_at).toLocaleDateString("en-MT") : "—";
       const gross   = t.amount != null ? (t.amount/100) : 0;
-      const net     = Math.round(t.amount * 100/118)/100;
+      const net     = Math.round(t.amount * 100/105)/100;
       const vat     = Math.round((gross - net)*100)/100;
       const isExp   = t.expires_at && new Date(t.expires_at) < new Date() && t.status==="VALID";
       const badge   = isExp ? "badge-expired"
