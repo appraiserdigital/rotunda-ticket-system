@@ -25,6 +25,9 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 const stripe   = new Stripe(process.env.STRIPE_SECRET_KEY);
 const resend   = new Resend(process.env.RESEND_API_KEY);
 
+// Cooldown tracker — prevents duplicate Day Report emails when page is loaded multiple times
+const dayReportLastSent = {}; // key: "from_to" → timestamp (ms)
+
 app.use(express.json());
 app.use(express.static("."));
 
@@ -521,7 +524,7 @@ app.get("/admin/export.csv", requireAdmin, async (req, res) => {
     const filename=`rotunda-tickets-${new Date().toISOString().slice(0,10)}.csv`;
     res.setHeader("Content-Type","text/csv; charset=utf-8");
     res.setHeader("Content-Disposition",`attachment; filename="${filename}"`);
-    res.send("\uFEFF"+csv);
+    res.send("﻿"+csv);
   } catch(err){ res.status(500).json({error:"Server error"}); }
 });
 
@@ -600,8 +603,6 @@ async function buildXlsx(tickets) {
   // ── Totals row ───────────────────────────────────────────────
   const totalGross = tickets.reduce((s,t) => s + (t.amount||0), 0);
   const totals     = vatBreakdown(totalGross);
-  const dataStart  = 2;
-  const dataEnd    = tickets.length + 1;
 
   const totalsRow = ws.addRow([
     PAD + "TOTALS" + PAD, "", "", "", "", "",
@@ -908,11 +909,19 @@ app.get("/admin/day-report", requireAdmin, async (req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(html);
 
-    // Fire email silently in background — does not block the page response
+    // Fire email silently in background — 10-minute cooldown per date to prevent duplicates
     if (process.env.DAY_REPORT_EMAILS) {
-      sendDayReportEmail(html, from, to, total, total, vat).catch(err =>
-        console.error("⚠️  Day report email failed:", err.message)
-      );
+      const cooldownKey = `${from}_${to}`;
+      const lastSent = dayReportLastSent[cooldownKey] || 0;
+      const minutesSince = (Date.now() - lastSent) / 60000;
+      if (minutesSince >= 10) {
+        dayReportLastSent[cooldownKey] = Date.now();
+        sendDayReportEmail(html, from, to, total, total, vat).catch(err =>
+          console.error("⚠️  Day report email failed:", err.message)
+        );
+      } else {
+        console.log(`ℹ️  Day report email suppressed — sent ${minutesSince.toFixed(1)} min ago`);
+      }
     }
 
   } catch(err) {
