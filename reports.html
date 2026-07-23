@@ -435,15 +435,16 @@ function exportXlsx() {
   setTimeout(() => setBtnDone("btn-excel"), 2000);
 }
 
-// ── Day Report — always forces status=USED ────────────
+// ── Day Report — always today, always USED only ───────
 function printDayReport() {
   setBtnLoading("btn-day", "Opening…");
-  const f      = getFilters();
-  const params = new URLSearchParams({ token: ADMIN_TOKEN, ...f, status: "USED" });
-  // Keep date/tour filters but force status to USED
-  for (const [k, v] of [...params.entries()]) {
-    if (!v && k !== "status") params.delete(k);
-  }
+  const today  = fmtDate(new Date());
+  const params = new URLSearchParams({
+    token:  ADMIN_TOKEN,
+    from:   today,
+    to:     today,
+    status: "USED",
+  });
   window.open(`/admin/day-report?${params}`, "_blank");
   setTimeout(() => setBtnDone("btn-day"), 1500);
 }
