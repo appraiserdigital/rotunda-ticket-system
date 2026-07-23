@@ -920,11 +920,114 @@ app.get("/admin/day-report", requireAdmin, async (req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(html);
 
+    // Fire email silently in background — does not block the page response
+    if (process.env.DAY_REPORT_EMAILS) {
+      sendDayReportEmail(html, from, to, total, arrived, vat).catch(err =>
+        console.error("⚠️  Day report email failed:", err.message)
+      );
+    }
+
   } catch(err) {
     console.error("❌ /admin/day-report error:", err);
     res.status(500).send("Server error generating report");
   }
 });
+
+// ─────────────────────────────────────────────────────────────
+// SEND DAY REPORT BY EMAIL
+// Called automatically when day report is viewed
+// Recipients set via DAY_REPORT_EMAILS env var (comma-separated)
+// ─────────────────────────────────────────────────────────────
+async function sendDayReportEmail(reportHtml, from, to, total, arrived, vat) {
+  const recipients = process.env.DAY_REPORT_EMAILS
+    .split(",")
+    .map(e => e.trim())
+    .filter(Boolean);
+
+  if (!recipients.length) return;
+
+  const dateLabel = from === to
+    ? new Date(from).toLocaleDateString("en-MT", {
+        weekday:"long", day:"2-digit", month:"long", year:"numeric",
+        timeZone:"Europe/Malta"
+      })
+    : `${new Date(from).toLocaleDateString("en-MT", { day:"2-digit", month:"long", year:"numeric", timeZone:"Europe/Malta" })} — ${new Date(to).toLocaleDateString("en-MT", { day:"2-digit", month:"long", year:"numeric", timeZone:"Europe/Malta" })}`;
+
+  const subject = `Daily Closure Report — ${FOUNDATION_NAME} — ${dateLabel}`;
+
+  // Wrap report HTML in an email-safe container
+  const emailHtml = `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#f4f6fa;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:20px 0;">
+    <tr><td align="center">
+      <table width="700" cellpadding="0" cellspacing="0"
+             style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);">
+        <tr><td style="background:#1B3A6B;padding:20px 28px;">
+          <p style="margin:0;color:#B8962E;font-size:12px;font-weight:bold;letter-spacing:1px;">DAILY CLOSURE REPORT</p>
+          <p style="margin:6px 0 0;color:#fff;font-size:18px;font-weight:bold;">${escapeHtml(FOUNDATION_NAME)}</p>
+          <p style="margin:4px 0 0;color:#BEE3F8;font-size:13px;">${dateLabel}</p>
+        </td></tr>
+        <tr><td style="padding:20px 28px 0;">
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="text-align:center;padding:12px;background:#f9fafb;border-radius:8px;width:25%">
+                <p style="margin:0;font-size:11px;color:#718096;text-transform:uppercase;">Bookings</p>
+                <p style="margin:4px 0 0;font-size:24px;font-weight:bold;color:#1B3A6B;">${total}</p>
+              </td>
+              <td width="12"></td>
+              <td style="text-align:center;padding:12px;background:#f9fafb;border-radius:8px;width:25%">
+                <p style="margin:0;font-size:11px;color:#718096;text-transform:uppercase;">Arrived</p>
+                <p style="margin:4px 0 0;font-size:24px;font-weight:bold;color:#166534;">${arrived}</p>
+              </td>
+              <td width="12"></td>
+              <td style="text-align:center;padding:12px;background:#f9fafb;border-radius:8px;width:25%">
+                <p style="margin:0;font-size:11px;color:#718096;text-transform:uppercase;">No Show</p>
+                <p style="margin:4px 0 0;font-size:24px;font-weight:bold;color:#92400e;">${total - arrived}</p>
+              </td>
+              <td width="12"></td>
+              <td style="text-align:center;padding:12px;background:#f9fafb;border-radius:8px;width:25%">
+                <p style="margin:0;font-size:11px;color:#718096;text-transform:uppercase;">Collected</p>
+                <p style="margin:4px 0 0;font-size:24px;font-weight:bold;color:#1B3A6B;">€${vat.gross_major}</p>
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:16px 28px;">
+          <p style="margin:0;font-size:11px;color:#718096;">
+            Gross: <strong>€${vat.gross_major}</strong> &nbsp;|&nbsp;
+            Net (excl. 5% VAT): <strong>€${vat.net_major}</strong> &nbsp;|&nbsp;
+            VAT @ 5%: <strong>€${vat.vat_major}</strong>
+          </p>
+        </td></tr>
+        <tr><td style="padding:0 28px 20px;">
+          <p style="margin:0 0 8px;font-size:12px;font-weight:bold;color:#1B3A6B;">Full report attached below</p>
+          <div style="border:1px solid #E2E8F0;border-radius:8px;overflow:hidden;max-height:600px;overflow-y:auto;">
+            ${reportHtml}
+          </div>
+        </td></tr>
+        <tr><td style="background:#F4F6FA;padding:14px 28px;border-top:1px solid #E2E8F0;">
+          <p style="margin:0;font-size:11px;color:#9CA3AF;font-style:italic;">
+            This report was generated automatically by the Rotunda Ticketing System.
+            Powered by App-Raiser Digital.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  await resend.emails.send({
+    from:    process.env.EMAIL_FROM,
+    to:      recipients,
+    subject,
+    html:    emailHtml,
+  });
+
+  console.log(`📧 Day report emailed to: ${recipients.join(", ")}`);
+}
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
