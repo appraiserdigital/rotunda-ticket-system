@@ -33,12 +33,24 @@
     }
     input:focus, select:focus { border-color:var(--blue); }
 
-    button { padding:10px 20px; border:none; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600; transition:opacity .15s; }
-    button:active { opacity:.75; }
+    /* Password toggle wrapper */
+    .pw-wrap { position:relative; margin-bottom:12px; }
+    .pw-wrap input { padding-right:44px; }
+    .pw-toggle {
+      position:absolute; right:12px; top:50%; transform:translateY(-50%);
+      background:none; border:none; cursor:pointer; color:var(--muted);
+      font-size:16px; padding:4px; line-height:1;
+    }
+    .pw-toggle:hover { color:var(--text); }
+
+    button { padding:10px 20px; border:none; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600; transition:all .15s; }
+    button:active { opacity:.75; transform:scale(.97); }
+    button:disabled { opacity:.5; cursor:not-allowed; }
     .btn-primary { background:var(--blue);   color:#fff; }
     .btn-green   { background:var(--green);  color:#fff; }
     .btn-outline { background:transparent; border:1px solid var(--border); color:var(--text); }
     .btn-sm      { padding:6px 14px; font-size:12px; }
+    .btn-loading { opacity:.7; cursor:wait; }
 
     /* Layout */
     #app { display:none; }
@@ -104,9 +116,13 @@
   <div class="auth-box">
     <h1>🔐 Admin Access</h1>
     <p>Rotunda Financial Reports</p>
-    <input type="password" id="token-input" placeholder="Enter admin token" style="margin-bottom:12px"/>
-    <button class="btn-primary" style="width:100%" onclick="authenticate()">Sign In</button>
-    <p id="auth-error" style="color:var(--red);font-size:12px;margin-top:12px;display:none">Invalid token</p>
+    <div class="pw-wrap">
+      <input type="password" id="token-input" placeholder="Enter admin token"
+             autocomplete="current-password" name="admin-token"/>
+      <button class="pw-toggle" type="button" onclick="togglePassword()" id="pw-eye" title="Show/hide">👁</button>
+    </div>
+    <button class="btn-primary" style="width:100%" onclick="authenticate()" id="signin-btn">Sign In</button>
+    <p id="auth-error" style="color:var(--red);font-size:12px;margin-top:12px;display:none">Invalid token — please try again</p>
   </div>
 </div>
 
@@ -141,10 +157,10 @@
       </div>
       <div class="filter-group"><label>Email</label><input type="text" id="f-email" placeholder="search email"/></div>
       <div class="filter-actions">
-        <button class="btn-outline btn-sm" onclick="resetFilters()">Reset</button>
-        <button class="btn-primary btn-sm" onclick="loadAll()">Apply</button>
-        <button class="btn-green btn-sm" onclick="exportXlsx()">⬇ Export Excel</button>
-        <button class="btn-sm" style="background:#B8962E;color:#fff;" onclick="printDayReport()">🖨 Day Report</button>
+        <button class="btn-outline btn-sm" id="btn-reset" onclick="resetFilters()">Reset</button>
+        <button class="btn-primary btn-sm" id="btn-apply" onclick="applyFilters()">Apply</button>
+        <button class="btn-green btn-sm"   id="btn-excel" onclick="exportXlsx()">⬇ Export Excel</button>
+        <button class="btn-sm" id="btn-day" style="background:#B8962E;color:#fff;" onclick="printDayReport()">🖨 Day Report</button>
       </div>
     </div>
 
@@ -211,12 +227,37 @@
 <script>
 let ADMIN_TOKEN = "";
 
-// ── Auth ────────────────────────────────────────────
+// ── Password toggle ───────────────────────────────────
+function togglePassword() {
+  const inp = el("token-input");
+  const eye = el("pw-eye");
+  if (inp.type === "password") {
+    inp.type = "text";
+    eye.textContent = "🙈";
+  } else {
+    inp.type = "password";
+    eye.textContent = "👁";
+  }
+}
+
+// ── Auth ──────────────────────────────────────────────
 function authenticate() {
-  const t = document.getElementById("token-input").value.trim();
+  const t = el("token-input").value.trim();
   if (!t) return;
+  const btn = el("signin-btn");
+  btn.textContent = "Signing in…";
+  btn.disabled = true;
+
   fetch(apiUrl("/admin/summary", { token: t }))
-    .then(r => { if (r.status===401){ el("auth-error").style.display="block"; return null; } return r.json(); })
+    .then(r => {
+      if (r.status === 401) {
+        el("auth-error").style.display = "block";
+        btn.textContent = "Sign In";
+        btn.disabled = false;
+        return null;
+      }
+      return r.json();
+    })
     .then(data => {
       if (!data) return;
       ADMIN_TOKEN = t;
@@ -225,11 +266,32 @@ function authenticate() {
       setDefaultDates();
       loadAll();
     })
-    .catch(() => el("auth-error").style.display = "block");
+    .catch(() => {
+      el("auth-error").style.display = "block";
+      btn.textContent = "Sign In";
+      btn.disabled = false;
+    });
 }
-document.getElementById("token-input").addEventListener("keydown", e => { if(e.key==="Enter") authenticate(); });
+document.getElementById("token-input").addEventListener("keydown", e => { if (e.key === "Enter") authenticate(); });
 
-// ── Filters ─────────────────────────────────────────
+// ── Button loading helpers ────────────────────────────
+function setBtnLoading(id, text) {
+  const b = el(id);
+  if (!b) return;
+  b.dataset.orig = b.textContent;
+  b.textContent = text;
+  b.disabled = true;
+  b.classList.add("btn-loading");
+}
+function setBtnDone(id) {
+  const b = el(id);
+  if (!b) return;
+  b.textContent = b.dataset.orig || b.textContent;
+  b.disabled = false;
+  b.classList.remove("btn-loading");
+}
+
+// ── Filters ───────────────────────────────────────────
 function setDefaultDates() {
   const now   = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -238,11 +300,17 @@ function setDefaultDates() {
 }
 
 function resetFilters() {
+  setBtnLoading("btn-reset", "Resetting…");
   setDefaultDates();
   el("f-status").value = "";
   el("f-tour").value   = "";
   el("f-email").value  = "";
-  loadAll();
+  loadAll().finally(() => setBtnDone("btn-reset"));
+}
+
+function applyFilters() {
+  setBtnLoading("btn-apply", "Loading…");
+  loadAll().finally(() => setBtnDone("btn-apply"));
 }
 
 function getFilters() {
@@ -255,8 +323,10 @@ function getFilters() {
   };
 }
 
-// ── Load all ─────────────────────────────────────────
-function loadAll() { loadSummary(); loadDaily(); loadTickets(); }
+// ── Load all ──────────────────────────────────────────
+async function loadAll() {
+  await Promise.all([loadSummary(), loadDaily(), loadTickets()]);
+}
 
 async function loadSummary() {
   try {
@@ -265,27 +335,25 @@ async function loadSummary() {
     const cur  = currencies[0] || "EUR";
     const info = data.by_currency[cur] || {};
 
-    el("stat-revenue").textContent = currencies.length ? `€${fmt(info.gross_major)}` : "—";
-    el("stat-net").textContent     = currencies.length ? `€${fmt(info.net_major)}`   : "—";
-    el("stat-vat").textContent     = currencies.length ? `€${fmt(info.vat_major)}`   : "—";
-    el("stat-currency").textContent= currencies.length > 1 ? "Multiple currencies" : "";
-    el("stat-total").textContent   = data.total_tickets ?? "—";
-    el("stat-used").textContent    = data.used_tickets  ?? "—";
-    el("stat-valid").textContent   = data.valid_tickets ?? "—";
+    el("stat-revenue").textContent  = currencies.length ? `€${fmt(info.gross_major)}` : "—";
+    el("stat-net").textContent      = currencies.length ? `€${fmt(info.net_major)}`   : "—";
+    el("stat-vat").textContent      = currencies.length ? `€${fmt(info.vat_major)}`   : "—";
+    el("stat-currency").textContent = currencies.length > 1 ? "Multiple currencies" : "";
+    el("stat-total").textContent    = data.total_tickets ?? "—";
+    el("stat-used").textContent     = data.used_tickets  ?? "—";
+    el("stat-valid").textContent    = data.valid_tickets ?? "—";
 
-    const pct = data.total_tickets > 0 ? Math.round(data.used_tickets/data.total_tickets*100) : 0;
+    const pct = data.total_tickets > 0 ? Math.round(data.used_tickets / data.total_tickets * 100) : 0;
     el("stat-used-pct").textContent = `${pct}% of total`;
-    el("topbar-meta").textContent = `Updated ${new Date().toLocaleTimeString("en-MT")}`;
+    el("topbar-meta").textContent   = `Updated ${new Date().toLocaleTimeString("en-MT")}`;
 
-    // Populate tour filter dropdown
-    const tours = Object.keys(data.by_tour || {});
-    const sel = el("f-tour");
+    const tours   = Object.keys(data.by_tour || {});
+    const sel     = el("f-tour");
     const current = sel.value;
     while (sel.options.length > 1) sel.remove(1);
     tours.forEach(t => { const o = new Option(t, t); sel.add(o); });
     if (current) sel.value = current;
 
-    // By tour table
     const tbody = el("tour-body");
     if (!tours.length) {
       tbody.innerHTML = `<tr><td colspan="7" class="empty">No data</td></tr>`;
@@ -303,16 +371,15 @@ async function loadSummary() {
         </tr>`;
       }).join("");
     }
-
   } catch (err) { showError("Failed to load summary: " + err.message); }
 }
 
 async function loadDaily() {
   try {
-    const rows = await apiFetch("/admin/daily", getFilters());
+    const rows  = await apiFetch("/admin/daily", getFilters());
     const tbody = el("daily-body");
-    if (!rows.length) { tbody.innerHTML=`<tr><td colspan="6" class="empty">No data for this period</td></tr>`; return; }
-    const sorted = [...rows].sort((a,b) => b.date.localeCompare(a.date));
+    if (!rows.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">No data for this period</td></tr>`; return; }
+    const sorted = [...rows].sort((a, b) => b.date.localeCompare(a.date));
     tbody.innerHTML = sorted.map(r => `<tr>
       <td>${r.date}</td>
       <td>${r.count}</td>
@@ -326,77 +393,81 @@ async function loadDaily() {
 
 async function loadTickets() {
   try {
-    const rows = await apiFetch("/admin/tickets", getFilters());
+    const rows  = await apiFetch("/admin/tickets", getFilters());
     const tbody = el("ticket-body");
-    el("ticket-count").textContent = `${rows.length} record${rows.length!==1?"s":""}`;
-    if (!rows.length) { tbody.innerHTML=`<tr><td colspan="11" class="empty">No tickets found</td></tr>`; return; }
+    el("ticket-count").textContent = `${rows.length} record${rows.length !== 1 ? "s" : ""}`;
+    if (!rows.length) { tbody.innerHTML = `<tr><td colspan="11" class="empty">No tickets found</td></tr>`; return; }
 
     tbody.innerHTML = rows.map(t => {
-      const dt      = new Date(t.created_at);
-      const usedAt  = t.used_at ? new Date(t.used_at).toLocaleString("en-MT") : "—";
-      const expiry  = t.expires_at ? new Date(t.expires_at).toLocaleDateString("en-MT") : "—";
-      const gross   = t.amount != null ? (t.amount/100) : 0;
-      const net     = Math.round(t.amount * 100/105)/100;
-      const vat     = Math.round((gross - net)*100)/100;
-      const isExp   = t.expires_at && new Date(t.expires_at) < new Date() && t.status==="VALID";
-      const badge   = isExp ? "badge-expired"
-                    : t.status==="VALID" ? "badge-valid"
-                    : t.status==="USED"  ? "badge-used"
-                    : "badge-other";
-      const label   = isExp ? "EXPIRED" : t.status;
-
+      const dt     = new Date(t.created_at);
+      const usedAt = t.used_at ? new Date(t.used_at).toLocaleString("en-MT") : "—";
+      const expiry = t.expires_at ? new Date(t.expires_at).toLocaleDateString("en-MT") : "—";
+      const gross  = t.amount != null ? (t.amount / 100) : 0;
+      const net    = Math.round(t.amount * 100 / 105) / 100;
+      const vat    = Math.round((gross - net) * 100) / 100;
+      const isExp  = t.expires_at && new Date(t.expires_at) < new Date() && t.status === "VALID";
+      const badge  = isExp ? "badge-expired" : t.status === "VALID" ? "badge-valid" : t.status === "USED" ? "badge-used" : "badge-other";
+      const label  = isExp ? "EXPIRED" : t.status;
       return `<tr>
-        <td>${dt.toLocaleDateString("en-MT")} ${dt.toLocaleTimeString("en-MT",{hour:"2-digit",minute:"2-digit"})}</td>
+        <td>${dt.toLocaleDateString("en-MT")} ${dt.toLocaleTimeString("en-MT", { hour:"2-digit", minute:"2-digit" })}</td>
         <td>${escHtml(t.name)}</td>
         <td>${escHtml(t.email)}</td>
-        <td>${escHtml(t.tour_type||"General Admission")}</td>
+        <td>${escHtml(t.tour_type || "General Admission")}</td>
         <td class="num">€${gross.toFixed(2)}</td>
         <td class="num">€${net.toFixed(2)}</td>
         <td class="num">€${vat.toFixed(2)}</td>
         <td><span class="badge ${badge}">${label}</span></td>
         <td>${expiry}</td>
         <td>${usedAt}</td>
-        <td style="font-size:11px;color:var(--muted);font-family:monospace">${t.id.slice(0,8)}…</td>
+        <td style="font-size:11px;color:var(--muted);font-family:monospace">${t.id.slice(0, 8)}…</td>
       </tr>`;
     }).join("");
   } catch (err) { showError("Failed to load tickets: " + err.message); }
 }
 
-// ── Export ───────────────────────────────────────────
+// ── Export Excel ──────────────────────────────────────
 function exportXlsx() {
-  const f = getFilters();
+  setBtnLoading("btn-excel", "Preparing…");
+  const f      = getFilters();
   const params = new URLSearchParams({ token: ADMIN_TOKEN, ...f });
-  for (const [k,v] of [...params.entries()]) { if (!v) params.delete(k); }
+  for (const [k, v] of [...params.entries()]) { if (!v) params.delete(k); }
   window.open(`/admin/export.xlsx?${params}`, "_blank");
+  setTimeout(() => setBtnDone("btn-excel"), 2000);
 }
 
+// ── Day Report — always forces status=USED ────────────
 function printDayReport() {
-  const f = getFilters();
-  const params = new URLSearchParams({ token: ADMIN_TOKEN, ...f });
-  for (const [k,v] of [...params.entries()]) { if (!v) params.delete(k); }
+  setBtnLoading("btn-day", "Opening…");
+  const f      = getFilters();
+  const params = new URLSearchParams({ token: ADMIN_TOKEN, ...f, status: "USED" });
+  // Keep date/tour filters but force status to USED
+  for (const [k, v] of [...params.entries()]) {
+    if (!v && k !== "status") params.delete(k);
+  }
   window.open(`/admin/day-report?${params}`, "_blank");
+  setTimeout(() => setBtnDone("btn-day"), 1500);
 }
 
-// ── Helpers ──────────────────────────────────────────
-function apiUrl(path, params={}) {
+// ── Helpers ───────────────────────────────────────────
+function apiUrl(path, params = {}) {
   const p = new URLSearchParams({ token: ADMIN_TOKEN, ...params });
-  for (const [k,v] of [...p.entries()]) { if (!v) p.delete(k); }
+  for (const [k, v] of [...p.entries()]) { if (!v) p.delete(k); }
   return `${path}?${p}`;
 }
-async function apiFetch(path, params={}) {
+async function apiFetch(path, params = {}) {
   const res = await fetch(apiUrl(path, params));
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
-function el(id) { return document.getElementById(id); }
-function fmtDate(d) { return d.toISOString().slice(0,10); }
-function fmt(v) { return parseFloat(v||0).toLocaleString("en-MT",{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function escHtml(s="") { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function el(id)     { return document.getElementById(id); }
+function fmtDate(d) { return d.toISOString().slice(0, 10); }
+function fmt(v)     { return parseFloat(v || 0).toLocaleString("en-MT", { minimumFractionDigits:2, maximumFractionDigits:2 }); }
+function escHtml(s = "") { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function showError(msg) {
   const bar = el("error-bar");
   bar.textContent = "⚠️ " + msg;
   bar.style.display = "block";
-  setTimeout(()=>{ bar.style.display="none"; }, 6000);
+  setTimeout(() => { bar.style.display = "none"; }, 6000);
 }
 </script>
 </body>
