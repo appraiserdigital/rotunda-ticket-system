@@ -46,15 +46,38 @@
       font-weight: bold;
       text-align: center;
       padding: 30px;
-      gap: 12px;
+      gap: 8px;
     }
     #result.visible { display: flex; }
 
-    #result .sub {
-      font-size: 18px;
+    #result-icon { font-size: 40px; }
+
+    #result-name {
+      font-size: 22px;
+      font-weight: bold;
+      opacity: 0.95;
+    }
+
+    /* Tour name — prominent display for staff */
+    #result-tour {
+      font-size: 17px;
       font-weight: normal;
-      opacity: 0.85;
+      opacity: 0.9;
+      background: rgba(0,0,0,0.25);
+      border-radius: 10px;
+      padding: 8px 20px;
       margin-top: 4px;
+      max-width: 320px;
+      line-height: 1.4;
+    }
+
+    .tour-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      opacity: 0.7;
+      display: block;
+      margin-bottom: 2px;
     }
 
     .btn {
@@ -64,7 +87,7 @@
       border: none;
       border-radius: 12px;
       cursor: pointer;
-      margin-top: 8px;
+      margin-top: 12px;
       min-width: 200px;
       transition: opacity 0.15s;
     }
@@ -86,11 +109,15 @@
   <!-- Result overlay -->
   <div id="result">
     <div id="result-icon"></div>
-    <div id="result-name" class="sub"></div>
+    <div id="result-name"></div>
+    <div id="result-tour" style="display:none">
+      <span class="tour-label">Tour</span>
+      <span id="result-tour-name"></span>
+    </div>
     <button id="btn-confirm" class="btn blue" onclick="confirmEntry()" style="display:none">
       ✅ Confirm Entry
     </button>
-    <button id="btn-cancel"  class="btn grey" onclick="resetScanner()" style="display:none">
+    <button id="btn-cancel" class="btn grey" onclick="resetScanner()" style="display:none">
       Cancel
     </button>
   </div>
@@ -98,134 +125,136 @@
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <script>
-    // ─────────────────────────────────────────
-    // State
-    // ─────────────────────────────────────────
-    let scanned      = false;
-    let pendingUseUrl = null;   // set after a VALID check, cleared on reset
+    let scanned        = false;
+    let pendingUseUrl  = null;
+    let scannerRunning = false;
 
     const resultEl    = document.getElementById("result");
     const iconEl      = document.getElementById("result-icon");
     const nameEl      = document.getElementById("result-name");
+    const tourBox     = document.getElementById("result-tour");
+    const tourNameEl  = document.getElementById("result-tour-name");
     const btnConfirm  = document.getElementById("btn-confirm");
     const btnCancel   = document.getElementById("btn-cancel");
     const statusBar   = document.getElementById("status-bar");
 
-    // ─────────────────────────────────────────
-    // UI helpers
-    // ─────────────────────────────────────────
-    function showResult(bgClass, icon, name, showButtons) {
+    const SCAN_CONFIG = { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 };
+    const html5QrCode = new Html5Qrcode("reader");
+
+    // ── Scanner start / stop ─────────────────────────────
+    function startScanner() {
+      if (scannerRunning) return;
+      html5QrCode.start({ facingMode: "environment" }, SCAN_CONFIG, onScanSuccess)
+        .then(() => { scannerRunning = true; statusBar.textContent = "Ready — point at ticket QR code"; })
+        .catch(err => { statusBar.textContent = "Camera error: " + err; });
+    }
+
+    function stopScanner() {
+      if (!scannerRunning) return Promise.resolve();
+      return html5QrCode.stop()
+        .then(() => { scannerRunning = false; })
+        .catch(() => { scannerRunning = false; });
+    }
+
+    // ── UI ───────────────────────────────────────────────
+    function showResult(bgClass, icon, name, tour, showButtons) {
       resultEl.className = bgClass + " visible";
-      iconEl.textContent  = icon;
-      nameEl.textContent  = name || "";
+      iconEl.textContent = icon;
+      nameEl.textContent = name || "";
+
+      // Show tour name prominently if available
+      if (tour) {
+        tourNameEl.textContent = tour;
+        tourBox.style.display  = "block";
+      } else {
+        tourBox.style.display  = "none";
+        tourNameEl.textContent = "";
+      }
+
       btnConfirm.style.display = showButtons ? "block" : "none";
       btnCancel.style.display  = showButtons ? "block" : "none";
+      btnConfirm.disabled      = false;
+      btnCancel.disabled       = false;
+      btnConfirm.textContent   = "✅ Confirm Entry";
     }
 
     function resetScanner() {
-      scanned       = false;
-      pendingUseUrl = null;
-      resultEl.className = "";
-      iconEl.textContent = nameEl.textContent = "";
-      statusBar.textContent = "Ready — point at ticket QR code";
-
-      // Restart the scanner if it has stopped (html5-qrcode pauses after decode)
-      html5QrCode.getState && html5QrCode.getState() !== 2
-        ? html5QrCode.start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-            onScanSuccess
-          ).catch(() => {})
-        : null;
+      scanned        = false;
+      pendingUseUrl  = null;
+      resultEl.className     = "";
+      iconEl.textContent     = "";
+      nameEl.textContent     = "";
+      tourBox.style.display  = "none";
+      tourNameEl.textContent = "";
+      statusBar.textContent  = "Restarting…";
+      stopScanner().then(() => startScanner());
     }
 
-    // ─────────────────────────────────────────
-    // QR scan handler
-    // ─────────────────────────────────────────
+    // ── Scan handler ─────────────────────────────────────
     function onScanSuccess(decodedText) {
       if (scanned) return;
       scanned = true;
       statusBar.textContent = "Checking…";
 
-      // decodedText should be: https://your-domain.onrender.com/check/<uuid>
-      // Build the /use/ URL by replacing /check/ with /use/
       const useUrl = decodedText.replace("/check/", "/use/");
-
       if (decodedText === useUrl) {
-        // URL didn't contain /check/ — might be a foreign or malformed QR
-        showResult("red", "❌ INVALID QR", "", false);
+        showResult("red", "❌ INVALID QR", "", "", false);
         setTimeout(resetScanner, 2500);
         return;
       }
 
-      // Store for confirmEntry to use
       pendingUseUrl = useUrl;
 
-      // Call /check/:id first — read-only, safe
       fetch(decodedText)
         .then(r => r.json())
         .then(data => {
+          const tour = data.tour || "";
           if (data.status === "VALID") {
-            showResult("green", "✅ VALID", data.name || "", true);
+            showResult("green", "✅ VALID", data.name || "", tour, true);
           } else if (data.status === "ALREADY_USED") {
-            showResult("orange", "⚠️ ALREADY USED", data.name || "", false);
-            setTimeout(resetScanner, 3000);
+            showResult("orange", "⚠️ ALREADY USED", data.name || "", tour, false);
+            setTimeout(resetScanner, 3500);
+          } else if (data.status === "EXPIRED") {
+            showResult("orange", "⏰ EXPIRED", data.name || "", tour, false);
+            setTimeout(resetScanner, 3500);
           } else {
-            showResult("red", "❌ INVALID", "", false);
+            showResult("red", "❌ INVALID", "", "", false);
             setTimeout(resetScanner, 2500);
           }
         })
         .catch(() => {
-          showResult("red", "❌ NETWORK ERROR", "", false);
+          showResult("red", "❌ NETWORK ERROR", "", "", false);
           setTimeout(resetScanner, 2500);
         });
     }
 
-    // ─────────────────────────────────────────
-    // Confirm entry — calls /use/:id
-    // ─────────────────────────────────────────
+    // ── Confirm entry ────────────────────────────────────
     function confirmEntry() {
       if (!pendingUseUrl) return;
-      btnConfirm.disabled = true;
-      btnCancel.disabled  = true;
+      btnConfirm.disabled    = true;
+      btnCancel.disabled     = true;
       btnConfirm.textContent = "Processing…";
 
       fetch(pendingUseUrl)
         .then(r => r.json())
         .then(data => {
+          const tour = data.tour || tourNameEl.textContent || "";
           if (data.status === "USED") {
-            showResult("blue", "🎟 ENTRY CONFIRMED", data.name || "", false);
+            showResult("blue", "🎟 ENTRY CONFIRMED", data.name || "", tour, false);
           } else if (data.status === "ALREADY_USED") {
-            showResult("orange", "⚠️ ALREADY USED", data.name || "", false);
+            showResult("orange", "⚠️ ALREADY USED", data.name || "", tour, false);
           } else {
-            showResult("red", "❌ CONFIRM FAILED", "", false);
+            showResult("red", "❌ CONFIRM FAILED", "", "", false);
           }
-          setTimeout(resetScanner, 3000);
+          setTimeout(resetScanner, 2500);
         })
         .catch(() => {
-          showResult("red", "❌ NETWORK ERROR", "", false);
+          showResult("red", "❌ NETWORK ERROR", "", "", false);
           setTimeout(resetScanner, 2500);
         });
     }
 
-    // ─────────────────────────────────────────
-    // Start camera
-    // ─────────────────────────────────────────
-    const html5QrCode = new Html5Qrcode("reader");
-
-    html5QrCode.start(
-      { facingMode: "environment" },
-      {
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
-        aspectRatio: 1.0,
-      },
-      onScanSuccess
-    ).then(() => {
-      statusBar.textContent = "Ready — point at ticket QR code";
-    }).catch(err => {
-      statusBar.textContent = "Camera error: " + err;
-    });
+    startScanner();
   </script>
 
 </body>
