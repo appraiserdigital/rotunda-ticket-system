@@ -293,10 +293,9 @@ function setBtnDone(id) {
 
 // ── Filters ───────────────────────────────────────────
 function setDefaultDates() {
-  const now   = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  el("f-from").value = fmtDate(start);
-  el("f-to").value   = fmtDate(now);
+  const today = fmtDate(new Date());
+  el("f-from").value = today;
+  el("f-to").value   = today;
 }
 
 function resetFilters() {
