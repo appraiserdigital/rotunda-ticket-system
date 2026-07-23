@@ -910,7 +910,7 @@ app.get("/admin/day-report", requireAdmin, async (req, res) => {
 
     // Fire email silently in background — does not block the page response
     if (process.env.DAY_REPORT_EMAILS) {
-      sendDayReportEmail(html, from, to, total, arrived, vat).catch(err =>
+      sendDayReportEmail(html, from, to, total, total, vat).catch(err =>
         console.error("⚠️  Day report email failed:", err.message)
       );
     }
