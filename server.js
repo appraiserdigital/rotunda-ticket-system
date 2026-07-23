@@ -657,15 +657,17 @@ app.get("/admin/export.xlsx", requireAdmin, async (req, res) => {
 
 // DAILY CLOSURE REPORT
 // GET /admin/day-report?token=xxx&from=YYYY-MM-DD&to=YYYY-MM-DD
-// Returns a printer-friendly HTML page
+// Returns a printer-friendly HTML page — ARRIVED VISITORS ONLY
 app.get("/admin/day-report", requireAdmin, async (req, res) => {
   try {
     const from = req.query.from || new Date().toISOString().slice(0, 10);
     const to   = req.query.to   || from;
 
+    // Only fetch USED tickets — scanned and confirmed at door
     let q = supabase
       .from("tickets")
       .select("*")
+      .eq("status", "USED")
       .gte("created_at", from)
       .lte("created_at", toEndOfDay(to))
       .order("created_at", { ascending: true });
@@ -675,11 +677,9 @@ app.get("/admin/day-report", requireAdmin, async (req, res) => {
     const { data: tickets, error } = await q;
     if (error) return res.status(500).send("Database error");
 
-    const total        = tickets.length;
-    const arrived      = tickets.filter(t => t.status === "USED").length;
-    const noShow       = tickets.filter(t => t.status === "VALID").length;
-    const totalGross   = tickets.reduce((s, t) => s + (t.amount || 0), 0);
-    const vat          = vatBreakdown(totalGross);
+    const total      = tickets.length;  // all are USED
+    const totalGross = tickets.reduce((s, t) => s + (t.amount || 0), 0);
+    const vat        = vatBreakdown(totalGross);
 
     const maltaOpts = { timeZone: "Europe/Malta" };
 
@@ -699,7 +699,6 @@ app.get("/admin/day-report", requireAdmin, async (req, res) => {
       if (!byTour[tour]) byTour[tour] = { count:0, arrived:0, gross:0 };
       byTour[tour].count++;
       byTour[tour].gross += t.amount || 0;
-      if (t.status === "USED") byTour[tour].arrived++;
     }
 
     const tourRows = Object.entries(byTour).map(([tour, d]) => {
@@ -707,8 +706,6 @@ app.get("/admin/day-report", requireAdmin, async (req, res) => {
       return `<tr>
         <td>${escapeHtml(tour)}</td>
         <td class="num">${d.count}</td>
-        <td class="num">${d.arrived}</td>
-        <td class="num">${d.count - d.arrived}</td>
         <td class="num">€${v.gross_major}</td>
         <td class="num">€${v.net_major}</td>
         <td class="num">€${v.vat_major}</td>
@@ -716,21 +713,17 @@ app.get("/admin/day-report", requireAdmin, async (req, res) => {
     }).join("");
 
     const ticketRows = tickets.map((t, i) => {
-      const dt      = new Date(t.created_at);
-      const timeStr = dt.toLocaleTimeString("en-MT", { hour:"2-digit", minute:"2-digit", ...maltaOpts });
-      const v       = vatBreakdown(t.amount || 0);
-      const arrived = t.status === "USED";
       const usedTime = t.used_at
         ? new Date(t.used_at).toLocaleTimeString("en-MT", { hour:"2-digit", minute:"2-digit", ...maltaOpts })
         : "—";
-      return `<tr class="${arrived ? "" : "no-show"}">
+      const v = vatBreakdown(t.amount || 0);
+      return `<tr>
         <td class="num">${i + 1}</td>
-        <td>${timeStr}</td>
+        <td class="arrived">✓ ${usedTime}</td>
         <td>${escapeHtml(t.name)}</td>
         <td>${escapeHtml(t.email)}</td>
         <td>${escapeHtml(t.tour_type || "General Admission")}</td>
         <td class="num">€${v.gross_major}</td>
-        <td class="num ${arrived ? "arrived" : "noshow"}">${arrived ? "✓ ARRIVED " + usedTime : "NO SHOW"}</td>
       </tr>`;
     }).join("");
 
@@ -841,22 +834,18 @@ app.get("/admin/day-report", requireAdmin, async (req, res) => {
     The Stripe payment reference for each ticket is available in the full Excel export.
   </div>
 
-  <div class="summary-grid">
-    <div class="summary-box">
-      <div class="lbl">Online Bookings</div>
-      <div class="val">${total}</div>
-    </div>
+  <div class="summary-grid" style="grid-template-columns: repeat(3, 1fr);">
     <div class="summary-box green">
-      <div class="lbl">Arrived</div>
-      <div class="val">${arrived}</div>
-    </div>
-    <div class="summary-box orange">
-      <div class="lbl">No Show</div>
-      <div class="val">${noShow}</div>
+      <div class="lbl">Visitors Arrived</div>
+      <div class="val">${total}</div>
     </div>
     <div class="summary-box">
       <div class="lbl">Total Collected</div>
       <div class="val">€${vat.gross_major}</div>
+    </div>
+    <div class="summary-box">
+      <div class="lbl">VAT @ 5%</div>
+      <div class="val">€${vat.vat_major}</div>
     </div>
   </div>
 
@@ -871,8 +860,8 @@ app.get("/admin/day-report", requireAdmin, async (req, res) => {
   <h2>Revenue by Tour Type</h2>
   <table>
     <thead><tr>
-      <th>Tour</th><th class="num">Bookings</th><th class="num">Arrived</th>
-      <th class="num">No Show</th><th class="num">Gross (€)</th>
+      <th>Tour</th><th class="num">Visitors</th>
+      <th class="num">Gross (€)</th>
       <th class="num">Net (€)</th><th class="num">VAT 5% (€)</th>
     </tr></thead>
     <tbody>${tourRows}</tbody>
@@ -881,15 +870,14 @@ app.get("/admin/day-report", requireAdmin, async (req, res) => {
   <h2>Visitor List</h2>
   <table>
     <thead><tr>
-      <th>#</th><th>Booked At</th><th>Name</th><th>Email</th>
-      <th>Tour</th><th class="num">Amount</th><th>Status</th>
+      <th>#</th><th>Arrived At</th><th>Name</th><th>Email</th>
+      <th>Tour</th><th class="num">Amount</th>
     </tr></thead>
     <tbody>
       ${ticketRows}
       <tr class="totals-row">
         <td colspan="5">TOTAL</td>
         <td class="num">€${vat.gross_major}</td>
-        <td></td>
       </tr>
     </tbody>
   </table>
@@ -972,24 +960,19 @@ async function sendDayReportEmail(reportHtml, from, to, total, arrived, vat) {
         <tr><td style="padding:20px 28px 0;">
           <table width="100%" cellpadding="0" cellspacing="0">
             <tr>
-              <td style="text-align:center;padding:12px;background:#f9fafb;border-radius:8px;width:25%">
-                <p style="margin:0;font-size:11px;color:#718096;text-transform:uppercase;">Bookings</p>
-                <p style="margin:4px 0 0;font-size:24px;font-weight:bold;color:#1B3A6B;">${total}</p>
+              <td style="text-align:center;padding:12px;background:#f9fafb;border-radius:8px;width:33%">
+                <p style="margin:0;font-size:11px;color:#718096;text-transform:uppercase;">Visitors Arrived</p>
+                <p style="margin:4px 0 0;font-size:24px;font-weight:bold;color:#166534;">${total}</p>
               </td>
               <td width="12"></td>
-              <td style="text-align:center;padding:12px;background:#f9fafb;border-radius:8px;width:25%">
-                <p style="margin:0;font-size:11px;color:#718096;text-transform:uppercase;">Arrived</p>
-                <p style="margin:4px 0 0;font-size:24px;font-weight:bold;color:#166534;">${arrived}</p>
-              </td>
-              <td width="12"></td>
-              <td style="text-align:center;padding:12px;background:#f9fafb;border-radius:8px;width:25%">
-                <p style="margin:0;font-size:11px;color:#718096;text-transform:uppercase;">No Show</p>
-                <p style="margin:4px 0 0;font-size:24px;font-weight:bold;color:#92400e;">${total - arrived}</p>
-              </td>
-              <td width="12"></td>
-              <td style="text-align:center;padding:12px;background:#f9fafb;border-radius:8px;width:25%">
-                <p style="margin:0;font-size:11px;color:#718096;text-transform:uppercase;">Collected</p>
+              <td style="text-align:center;padding:12px;background:#f9fafb;border-radius:8px;width:33%">
+                <p style="margin:0;font-size:11px;color:#718096;text-transform:uppercase;">Total Collected</p>
                 <p style="margin:4px 0 0;font-size:24px;font-weight:bold;color:#1B3A6B;">€${vat.gross_major}</p>
+              </td>
+              <td width="12"></td>
+              <td style="text-align:center;padding:12px;background:#f9fafb;border-radius:8px;width:33%">
+                <p style="margin:0;font-size:11px;color:#718096;text-transform:uppercase;">VAT @ 5%</p>
+                <p style="margin:4px 0 0;font-size:24px;font-weight:bold;color:#1B3A6B;">€${vat.vat_major}</p>
               </td>
             </tr>
           </table>
