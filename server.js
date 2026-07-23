@@ -681,13 +681,15 @@ app.get("/admin/day-report", requireAdmin, async (req, res) => {
     const totalGross   = tickets.reduce((s, t) => s + (t.amount || 0), 0);
     const vat          = vatBreakdown(totalGross);
 
+    const maltaOpts = { timeZone: "Europe/Malta" };
+
     const dateLabel = from === to
-      ? new Date(from).toLocaleDateString("en-MT", { weekday:"long", day:"2-digit", month:"long", year:"numeric" })
-      : `${new Date(from).toLocaleDateString("en-MT", { day:"2-digit", month:"long", year:"numeric" })} — ${new Date(to).toLocaleDateString("en-MT", { day:"2-digit", month:"long", year:"numeric" })}`;
+      ? new Date(from).toLocaleDateString("en-MT", { weekday:"long", day:"2-digit", month:"long", year:"numeric", ...maltaOpts })
+      : `${new Date(from).toLocaleDateString("en-MT", { day:"2-digit", month:"long", year:"numeric", ...maltaOpts })} — ${new Date(to).toLocaleDateString("en-MT", { day:"2-digit", month:"long", year:"numeric", ...maltaOpts })}`;
 
     const generatedAt = new Date().toLocaleString("en-MT", {
       day:"2-digit", month:"long", year:"numeric",
-      hour:"2-digit", minute:"2-digit"
+      hour:"2-digit", minute:"2-digit", ...maltaOpts
     });
 
     // Group by tour
@@ -715,11 +717,11 @@ app.get("/admin/day-report", requireAdmin, async (req, res) => {
 
     const ticketRows = tickets.map((t, i) => {
       const dt      = new Date(t.created_at);
-      const timeStr = dt.toLocaleTimeString("en-MT", { hour:"2-digit", minute:"2-digit" });
+      const timeStr = dt.toLocaleTimeString("en-MT", { hour:"2-digit", minute:"2-digit", ...maltaOpts });
       const v       = vatBreakdown(t.amount || 0);
       const arrived = t.status === "USED";
       const usedTime = t.used_at
-        ? new Date(t.used_at).toLocaleTimeString("en-MT", { hour:"2-digit", minute:"2-digit" })
+        ? new Date(t.used_at).toLocaleTimeString("en-MT", { hour:"2-digit", minute:"2-digit", ...maltaOpts })
         : "—";
       return `<tr class="${arrived ? "" : "no-show"}">
         <td class="num">${i + 1}</td>
