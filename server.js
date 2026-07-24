@@ -55,7 +55,10 @@ app.get("/manifest.json", (_req, res) => {
     background_color: "#111111",
     theme_color: "#1B3A6B",
     icons: [
-      { src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "any maskable" }
+      { src: "/icon.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icon.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+      { src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "maskable" }
     ]
   });
 });
