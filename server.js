@@ -43,6 +43,17 @@ app.get("/icon.png", (_req, res) => {
   res.send(ICON_BUF);
 });
 
+// ── PWA: Service Worker ───────────────────────────────────────
+app.get("/sw.js", (_req, res) => {
+  res.setHeader("Content-Type", "application/javascript");
+  res.setHeader("Cache-Control", "no-cache");
+  res.send(`
+self.addEventListener('install', e => e.waitUntil(self.skipWaiting()));
+self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch', e => e.respondWith(fetch(e.request).catch(() => new Response('Offline'))));
+  `.trim());
+});
+
 // ── PWA: Web App Manifest ─────────────────────────────────────
 app.get("/manifest.json", (_req, res) => {
   res.setHeader("Content-Type", "application/manifest+json");
@@ -55,8 +66,6 @@ app.get("/manifest.json", (_req, res) => {
     background_color: "#111111",
     theme_color: "#1B3A6B",
     icons: [
-      { src: "/icon.png", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/icon.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
       { src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "any" },
       { src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "maskable" }
     ]
