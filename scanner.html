@@ -8,7 +8,6 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Rotunda Scanner">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="manifest" href="/manifest.json">
   <link rel="icon" href="/icon.png" type="image/png">
   <link rel="apple-touch-icon" href="/icon.png">
   <style>
@@ -270,17 +269,14 @@
 
     startScanner();
 
-    // ── Suppress browser install prompt ──────────────────────
-    window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); });
+    // ── Unregister any previously installed service worker ────
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+    }
 
     // ── Show Add to Home Screen banner (once, until dismissed) ─
     if (!localStorage.getItem('aths-dismissed') && !window.matchMedia('(display-mode: standalone)').matches) {
       document.getElementById('aths-banner').style.display = 'flex';
-    }
-
-    // ── Register service worker ───────────────────────────────
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
   </script>
 
