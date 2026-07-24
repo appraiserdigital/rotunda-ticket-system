@@ -110,6 +110,12 @@
 </head>
 <body>
 
+  <!-- Add to Home Screen banner -->
+  <div id="aths-banner" style="display:none;background:#B8962E;color:#1B3A6B;font-size:13px;font-weight:bold;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+    <span>📲 Tap the menu ( ⋮ ) then <em>Add to Home Screen</em> for quick access</span>
+    <button onclick="document.getElementById('aths-banner').style.display='none';localStorage.setItem('aths-dismissed','1');" style="background:none;border:none;font-size:20px;font-weight:bold;color:#1B3A6B;cursor:pointer;line-height:1;padding:0 4px;">✕</button>
+  </div>
+
   <header>🎟 Ticket Scanner — Rotunda of Mosta</header>
   <div id="reader"></div>
   <div id="status-bar">Initialising camera…</div>
@@ -264,7 +270,15 @@
 
     startScanner();
 
-    // ── Register service worker (required for PWA install) ───
+    // ── Suppress browser install prompt ──────────────────────
+    window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); });
+
+    // ── Show Add to Home Screen banner (once, until dismissed) ─
+    if (!localStorage.getItem('aths-dismissed') && !window.matchMedia('(display-mode: standalone)').matches) {
+      document.getElementById('aths-banner').style.display = 'flex';
+    }
+
+    // ── Register service worker ───────────────────────────────
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
