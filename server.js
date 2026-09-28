@@ -458,6 +458,23 @@ app.get("/use/:id", async (req, res) => {
   } catch(err){ return res.json({status:"ERROR"}); }
 });
 
+// ADMIN MARK AS USED (manual override)
+app.post("/admin/mark-used/:id", requireAdmin, async (req, res) => {
+  try {
+    const { data: ticket, error } = await supabase
+      .from("tickets").select("id,status,name").eq("id", req.params.id).single();
+    if (error || !ticket) return res.status(404).json({ error: "Ticket not found" });
+    if (ticket.status === "USED") return res.json({ status: "USED" }); // already done
+    const { error: updateErr } = await supabase
+      .from("tickets")
+      .update({ status: "USED", used_at: new Date().toISOString() })
+      .eq("id", req.params.id);
+    if (updateErr) { console.error("❌ mark-used error:", updateErr); return res.status(500).json({ error: "Update failed" }); }
+    console.log(`✅ Manual mark-used: ${req.params.id} | ${ticket.name}`);
+    return res.json({ status: "USED" });
+  } catch (err) { res.status(500).json({ error: "Server error" }); }
+});
+
 // ADMIN SUMMARY
 app.get("/admin/summary", requireAdmin, async (req, res) => {
   try {
