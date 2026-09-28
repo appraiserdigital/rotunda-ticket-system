@@ -214,9 +214,9 @@
           <thead><tr>
             <th>Date / Time</th><th>Name</th><th>Email</th><th>Tour</th>
             <th class="num">Gross (€)</th><th class="num">Net (€)</th><th class="num">VAT (€)</th>
-            <th>Status</th><th>Expires</th><th>Used At</th><th>ID</th>
+            <th>Status</th><th>Expires</th><th>Used At</th><th>ID</th><th></th>
           </tr></thead>
-          <tbody id="ticket-body"><tr><td colspan="11" class="empty">Loading…</td></tr></tbody>
+          <tbody id="ticket-body"><tr><td colspan="12" class="empty">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -407,7 +407,10 @@ async function loadTickets() {
       const isExp  = t.expires_at && new Date(t.expires_at) < new Date() && t.status === "VALID";
       const badge  = isExp ? "badge-expired" : t.status === "VALID" ? "badge-valid" : t.status === "USED" ? "badge-used" : "badge-other";
       const label  = isExp ? "EXPIRED" : t.status;
-      return `<tr>
+      const markBtn = t.status === "VALID"
+        ? `<button class="btn-sm" style="background:#f97316;color:#fff;font-size:11px;padding:4px 10px;" onclick="markUsed('${t.id}', this)">Mark Used</button>`
+        : "";
+      return `<tr id="row-${t.id}">
         <td>${dt.toLocaleDateString("en-MT")} ${dt.toLocaleTimeString("en-MT", { hour:"2-digit", minute:"2-digit" })}</td>
         <td>${escHtml(t.name)}</td>
         <td>${escHtml(t.email)}</td>
@@ -415,13 +418,37 @@ async function loadTickets() {
         <td class="num">€${gross.toFixed(2)}</td>
         <td class="num">€${net.toFixed(2)}</td>
         <td class="num">€${vat.toFixed(2)}</td>
-        <td><span class="badge ${badge}">${label}</span></td>
+        <td><span class="badge ${badge}" id="badge-${t.id}">${label}</span></td>
         <td>${expiry}</td>
-        <td>${usedAt}</td>
+        <td id="usedat-${t.id}">${usedAt}</td>
         <td style="font-size:11px;color:var(--muted);font-family:monospace">${t.id.slice(0, 8)}…</td>
+        <td>${markBtn}</td>
       </tr>`;
     }).join("");
   } catch (err) { showError("Failed to load tickets: " + err.message); }
+}
+
+// ── Mark ticket as Used (manual override) ─────────────
+async function markUsed(id, btn) {
+  if (!confirm("Mark this ticket as USED? This cannot be undone.")) return;
+  btn.textContent = "…";
+  btn.disabled = true;
+  try {
+    const res  = await fetch(apiUrl(`/admin/mark-used/${id}`), { method: "POST" });
+    const data = await res.json();
+    if (data.status === "USED") {
+      document.getElementById("badge-" + id).className   = "badge badge-used";
+      document.getElementById("badge-" + id).textContent = "USED";
+      document.getElementById("usedat-" + id).textContent = new Date().toLocaleString("en-MT");
+      btn.remove();
+    } else {
+      btn.textContent = "Error";
+      btn.disabled = false;
+    }
+  } catch (err) {
+    btn.textContent = "Error";
+    btn.disabled = false;
+  }
 }
 
 // ── Export Excel ──────────────────────────────────────
