@@ -966,18 +966,23 @@ app.get("/admin/day-report", requireAdmin, async (req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(html);
 
-    // Fire email silently in background — once per calendar day per date range (Malta time)
+    // Fire email silently in background — only for today's report, once per calendar day (Malta time)
     if (process.env.DAY_REPORT_EMAILS) {
-      const cooldownKey = `${from}_${to}`;
-      const lastSent = dayReportLastSent[cooldownKey];
       const todayMalta = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Malta" }); // YYYY-MM-DD
-      if (!lastSent || lastSent !== todayMalta) {
-        dayReportLastSent[cooldownKey] = todayMalta;
-        sendDayReportEmail(html, from, to, total, total, vat).catch(err =>
-          console.error("⚠️  Day report email failed:", err.message)
-        );
+      // Only auto-email if the report covers today — historical date browsing never fires an email
+      if (from === todayMalta || to === todayMalta) {
+        const cooldownKey = `${from}_${to}`;
+        const lastSent = dayReportLastSent[cooldownKey];
+        if (!lastSent || lastSent !== todayMalta) {
+          dayReportLastSent[cooldownKey] = todayMalta;
+          sendDayReportEmail(html, from, to, total, total, vat).catch(err =>
+            console.error("⚠️  Day report email failed:", err.message)
+          );
+        } else {
+          console.log(`ℹ️  Day report email suppressed — already sent today for ${cooldownKey}`);
+        }
       } else {
-        console.log(`ℹ️  Day report email suppressed — already sent today for ${cooldownKey}`);
+        console.log(`ℹ️  Day report email suppressed — historical date range ${from} to ${to}, not auto-emailed`);
       }
     }
 
